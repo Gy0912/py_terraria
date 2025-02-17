@@ -2,27 +2,24 @@ import pygame
 from settings import *
 from player import *
 from world import *
+from background import *
 from creatures import *
+from camera import *
 
 class Game:
     def __init__(self):
         # Initialize game window, etc.
         pygame.init()
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         self.clock = pygame.time.Clock()
         self.running = True
         self.paused = False
 
     def new(self):
         # Start a new game
-        generate()
         self.grid = {}
-        # create player, background, creatures
-        self.player = Player()
-        self.background = Background()
-        self.creatures = Creatures()
-        # create world
         self.world = World()
+        self.background = Background(self.screen)
 
         self.run()
 
@@ -37,10 +34,8 @@ class Game:
 
     def update(self):
         # Game loop - update
-        self.player.update()
-        self.background.update()
-        self.creatures.update()
-        self.world.update()
+        biome  = self.world.get_biome(0) # tobe changed since player and camera hasn't been implemented
+        self.background.update(biome)
 
     def events(self):
         # Game loop - events
@@ -53,10 +48,7 @@ class Game:
     def draw(self):
         # Game loop - draw
         self.screen.fill(BLACK)
-        self.background.draw()
-        self.creatures.draw()
-        self.player.draw()
-        self.world.draw()
+        self.background.draw(0) # tobe changed since player and camera hasn't been implemented
         pygame.display.flip()
 
     def show_start_screen(self):
@@ -68,7 +60,7 @@ class Game:
         version_font = pygame.font.Font(None, 24)
         # image path
         image = pygame.image.load(IMAGES_PATH["start_screen"]).convert()
-        image = pygame.transform.scale(image, (WIDTH, HEIGHT))
+        image = pygame.transform.scale(image, (SCREEN_WIDTH, SCREEN_HEIGHT))
         # basic text infos
         enter_text = font.render("Press 'ENTER' to Start Game", True, WHITE)
         text_x = (self.screen.get_width() - enter_text.get_width()) // 2
