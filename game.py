@@ -34,7 +34,7 @@ class Game:
 
     def update(self):
         # Game loop - update
-        biome  = self.world.get_biome(0) # tobe changed since player and camera hasn't been implemented
+        biome  = self.world.get_biome(0, 0) # tobe changed since player and camera hasn't been implemented
         self.background.update(biome)
 
     def events(self):
@@ -48,7 +48,7 @@ class Game:
     def draw(self):
         # Game loop - draw
         self.screen.fill(BLACK)
-        self.background.draw(0) # tobe changed since player and camera hasn't been implemented
+        self.background.draw(0, 0) # tobe changed since player and camera hasn't been implemented
         pygame.display.flip()
 
     def show_start_screen(self):

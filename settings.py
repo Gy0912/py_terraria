@@ -43,6 +43,5 @@ IMAGES_PATH = {
     "under_ground": BACKGROUND_IMAGES + "under_ground.jpg",
     "under_snow": BACKGROUND_IMAGES + "under_snow.jpg",
     "under_jungle": BACKGROUND_IMAGES + "under_jungle.jpg",
-    "under_ocean": BACKGROUND_IMAGES + "under_ocean.jpg",
-    "star": BACKGROUND_IMAGES + "star.jpg"
+    "under_ocean": BACKGROUND_IMAGES + "under_ocean.jpg"
 }

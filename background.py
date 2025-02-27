@@ -17,8 +17,7 @@ class Background:
             "under_ground": pygame.image.load(IMAGES_PATH["under_ground"]).convert(),
             "under_snow": pygame.image.load(IMAGES_PATH["under_snow"]).convert(),
             "under_jungle": pygame.image.load(IMAGES_PATH["under_jungle"]).convert(),
-            "under_ocean": pygame.image.load(IMAGES_PATH["under_ocean"]).convert(),
-            "star": pygame.image.load(IMAGES_PATH["star"]).convert()
+            "under_ocean": pygame.image.load(IMAGES_PATH["under_ocean"]).convert()
         }
         # set the background image
         self.current_bg = self.bg_images["forest"]
@@ -29,9 +28,18 @@ class Background:
             self.current_bg = self.bg_images[biome]
             self.width, self.height = self.current_bg.get_rect().size
 
-    def draw(self, camera_x):
+    def draw(self, camera_x, camera_y):
         pos_x_tmp = (camera_x // self.slowing_rate) % self.width
-        num_tiles = SCREEN_WIDTH // self.width + 2
+        num_x_tiles = SCREEN_WIDTH // self.width + 2
+        num_y_tiles = SCREEN_HEIGHT // self.height + 2
 
-        for i in range(-1, num_tiles):
-            self.screen.blit(self.current_bg, (pos_x_tmp + i * self.width, 0))
+        if SKY_HEIGHT <= camera_y < GROUND_HEIGHT:
+            y_offset = (camera_y - SKY_HEIGHT) // 2
+        elif HELL_HEIGHT <= camera_y < MAP_HEIGHT:
+            y_offset = (camera_y - HELL_HEIGHT) // 2
+        else:
+            y_offset = 0
+
+        for i in range(-1, num_x_tiles):
+            for j in range(-1, num_y_tiles):
+                self.screen.blit(self.current_bg, (pos_x_tmp + i * self.width, j * self.height - y_offset))
