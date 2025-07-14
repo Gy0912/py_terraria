@@ -29,17 +29,11 @@ class Background:
             self.width, self.height = self.current_bg.get_rect().size
 
     def draw(self, camera_x, camera_y):
-        pos_x_tmp = (camera_x // self.slowing_rate) % self.width
-        num_x_tiles = SCREEN_WIDTH // self.width + 2
-        num_y_tiles = SCREEN_HEIGHT // self.height + 2
+        pos_x = (camera_x // self.slowing_rate) % self.width
+        pos_y = (camera_y // self.slowing_rate) % self.height
+        num_tiles_x = SCREEN_WIDTH // self.width + 2
+        num_tiles_y = SCREEN_HEIGHT // self.height + 2
 
-        if SKY_HEIGHT <= camera_y < GROUND_HEIGHT:
-            y_offset = (camera_y - SKY_HEIGHT) // 2
-        elif HELL_HEIGHT <= camera_y < MAP_HEIGHT:
-            y_offset = (camera_y - HELL_HEIGHT) // 2
-        else:
-            y_offset = 0
-
-        for i in range(-1, num_x_tiles):
-            for j in range(-1, num_y_tiles):
-                self.screen.blit(self.current_bg, (pos_x_tmp + i * self.width, j * self.height - y_offset))
+        for i in range(-1, num_tiles_x):
+            for j in range(-1, num_tiles_y):
+                self.screen.blit(self.current_bg, (i * self.width - pos_x, j * self.height - pos_y))
