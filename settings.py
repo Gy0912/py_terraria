@@ -1,7 +1,7 @@
 # game settings
 TITLE = "PyTerraria"
 SCREEN_WIDTH = 1080
-SCREEN_HEIGHT = 720
+SCREEN_HEIGHT = 655
 FPS = 60
 
 # world properties

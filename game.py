@@ -10,7 +10,6 @@ class Game:
     def __init__(self):
         # Initialize game window, etc.
         pygame.init()
-        self.camera = Camera()
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         self.clock = pygame.time.Clock()
         self.running = True
@@ -21,6 +20,7 @@ class Game:
         self.grid = {}
         self.world = World()
         self.background = Background(self.screen)
+        self.player = Player()
 
         self.run()
 
@@ -35,8 +35,9 @@ class Game:
 
     def update(self):
         # Game loop - update
-        self.camera.handle_input()
-        biome  = self.world.get_biome(self.camera.x, self.camera.y)
+        keys = pygame.key.get_pressed()
+        self.player.update(keys)
+        biome = self.world.get_biome(self.player.x, self.player.y)
         self.background.update(biome)
 
     def events(self):
@@ -50,7 +51,7 @@ class Game:
     def draw(self):
         # Game loop - draw
         self.screen.fill(BLACK)
-        self.background.draw(self.camera.x, self.camera.y)
+        self.background.draw(self.player.x, self.player.y)
         pygame.display.flip()
 
     def show_start_screen(self):

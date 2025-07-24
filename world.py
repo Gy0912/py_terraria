@@ -1,4 +1,5 @@
 import random
+import pygame
 from settings import *
 
 class World:
@@ -80,6 +81,8 @@ class World:
         return biome_map
 
     def get_biome(self, x, y):
+        x = x // TILE_SIZE
+        y = y // TILE_SIZE
         if 0 <= x < ACTUAL_MAP_WIDTH and 0 <= y < ACTUAL_MAP_HEIGHT:
             return self.biome_map[x][y]
         return "void"
