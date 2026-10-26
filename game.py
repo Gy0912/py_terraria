@@ -81,8 +81,8 @@ class Game:
                 self.running = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = event.pos
-                world_x = mx + self.camera.x
-                world_y = my + self.camera.y
+                world_x = int(mx + self.camera.x)
+                world_y = int(my + self.camera.y)
                 tx = world_x // TILE_SIZE
                 ty = world_y // TILE_SIZE
                 if event.button == 1:
@@ -131,7 +131,7 @@ class Game:
 
     def _draw_tiles(self):
         """Render only tiles visible on screen."""
-        cam_x, cam_y = self.camera.x, self.camera.y
+        cam_x, cam_y = int(self.camera.x), int(self.camera.y)
         start_tx = max(cam_x // TILE_SIZE, 0)
         start_ty = max(cam_y // TILE_SIZE, 0)
         end_tx = min((cam_x + SCREEN_WIDTH) // TILE_SIZE + 1, ACTUAL_MAP_WIDTH)
@@ -158,12 +158,12 @@ class Game:
     def _draw_cursor_highlight(self):
         """Highlight the tile under the mouse cursor."""
         mx, my = pygame.mouse.get_pos()
-        world_x = mx + self.camera.x
-        world_y = my + self.camera.y
+        world_x = int(mx + self.camera.x)
+        world_y = int(my + self.camera.y)
         tx = world_x // TILE_SIZE
         ty = world_y // TILE_SIZE
-        sx = tx * TILE_SIZE - self.camera.x
-        sy = ty * TILE_SIZE - self.camera.y
+        sx = tx * TILE_SIZE - int(self.camera.x)
+        sy = ty * TILE_SIZE - int(self.camera.y)
         pygame.draw.rect(self.screen, WHITE, (sx, sy, TILE_SIZE, TILE_SIZE), 1)
 
     # ------------------------------------------------------------------
