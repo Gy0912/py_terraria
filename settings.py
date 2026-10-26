@@ -31,11 +31,15 @@ GRAY = (125, 125, 125)
 
 # Tile colors (placeholder; will be replaced by sprites later)
 TILE_COLORS = {
-    "grass": (34, 139, 34),
-    "dirt":  (139, 90, 43),
-    "stone": (128, 128, 128),
-    "sand":  (210, 180, 100),
-    "wood":  (160, 82, 45),
+    "grass":      (34, 139, 34),
+    "dirt":       (139, 90, 43),
+    "stone":      (128, 128, 128),
+    "sand":       (210, 180, 100),
+    "wood":       (160, 82, 45),
+    "leaves":     (0, 180, 0),
+    "iron_ore":   (180, 140, 120),
+    "copper_ore": (200, 120, 60),
+    "gold_ore":   (255, 215, 0),
 }
 
 # Images path

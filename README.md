@@ -4,24 +4,24 @@
 
 ## 当前状态（摘要）
 
-- **已有**：开始界面、主循环、群系按需查询、视差背景、地表瓦片地形（grass/dirt/stone/sand）、玩家重力与碰撞、相机跟随、左键挖掘/右键放置方块、数字键切换方块类型、HUD（坐标/群系/FPS/物品栏/选中方块）。
-- **缺失**：战斗、生物、完整物品栏 UI、血条/蓝条、存档、精灵动画、音效等。
+- **已有**：开始界面、主循环、群系按需查询、视差背景、地形（地表/地下30层/矿石/洞穴/树木）、玩家重力碰撞与跳跃、相机跟随、挖掘/放置/攻击、生物系统（巡逻/碰撞伤害/击杀）、HP/MP 条、9 格工具栏 UI、HUD。
+- **缺失**：精灵动画、合成系统、存档、暂停/结束界面、音效、MP 消耗等。
 - 详情见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
 
 ## 项目结构
 
 ```
 py_terraria/
-├─ game.py              # 游戏入口与主循环、瓦片渲染、事件处理、HUD
-├─ settings.py          # 窗口、地图尺寸、颜色、瓦片颜色、图片路径
-├─ world.py             # 按需群系查询 + 稀疏瓦片 dict + 地形生成
+├─ game.py              # 游戏入口、主循环、瓦片渲染、事件（挖掘/放置/攻击）、HUD
+├─ settings.py          # 窗口、地图尺寸、颜色、瓦片颜色（含矿石/树）、图片路径
+├─ world.py             # 按需群系查询 + 稀疏瓦片 dict + 地形生成（含矿石/洞穴/树木）
 ├─ background.py        # 背景图加载与视差绘制（Background）
-├─ player.py            # 玩家移动/重力/碰撞/物品栏/绘制
-├─ camera.py            # 相机跟随玩家 + 坐标转换
-├─ creatures.py         # 占位（空文件）
-├─ inventory.py         # 占位（空文件）
-├─ healthbar.py         # 占位（空文件）
-├─ manabar.py           # 占位（空文件）
+├─ player.py            # 玩家移动/重力/碰撞/跳跃/落下伤害/物品栏/绘制
+├─ camera.py            # 相机跟随玩家 + 世界→屏幕坐标转换
+├─ creatures.py         # 基础敌人 AI、碰撞伤害、CreatureManager
+├─ inventory.py         # 底部 9 格工具栏 UI（数字键/滚轮切换）
+├─ healthbar.py         # 右上角 HP 条
+├─ manabar.py           # HP 下方 MP 条（预留）
 ├─ images/              # 位图资源（JPG）
 │  ├─ screen_pics/      # 开始界面等
 │  └─ background_pics/  # 各群系/层背景

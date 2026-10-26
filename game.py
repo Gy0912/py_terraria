@@ -4,6 +4,10 @@ from player import Player
 from world import World
 from background import Background
 from camera import Camera
+from healthbar import HealthBar
+from manabar import ManaBar
+from creatures import CreatureManager
+from inventory import InventoryUI
 
 
 class Game:
@@ -24,6 +28,11 @@ class Game:
         self.background = Background(self.screen)
         self.player = Player(self.world)
         self.camera = Camera()
+        self.health_bar = HealthBar(100)
+        self.mana_bar = ManaBar(50)
+        self.creature_mgr = CreatureManager(self.world)
+        self.inventory_ui = InventoryUI()
+        self.damage_cooldown = 0
         self.run()
 
     # ------------------------------------------------------------------
@@ -41,6 +50,22 @@ class Game:
     def update(self):
         keys = pygame.key.get_pressed()
         self.player.update(keys)
+        # Apply fall damage
+        if self.player.fall_damage > 0:
+            self.health_bar.take_damage(self.player.fall_damage)
+            self.player.fall_damage = 0
+        # Track fall start when not on ground
+        if not self.player.on_ground and self.player.vy <= 0:
+            self.player.fall_start_y = self.player.y
+        # Creatures
+        self.creature_mgr.update(self.player.x, self.player.y)
+        if self.damage_cooldown > 0:
+            self.damage_cooldown -= 1
+        else:
+            contact_dmg = self.creature_mgr.check_player_collision(self.player)
+            if contact_dmg > 0:
+                self.health_bar.take_damage(contact_dmg)
+                self.damage_cooldown = 30  # invincibility frames
         self.camera.update(self.player.x, self.player.y)
         biome = self.world.get_biome(self.player.x, self.player.y)
         self.background.update(biome)
@@ -61,24 +86,29 @@ class Game:
                 tx = world_x // TILE_SIZE
                 ty = world_y // TILE_SIZE
                 if event.button == 1:
-                    removed = self.world.remove_tile(tx, ty)
-                    if removed:
-                        self.player.inventory[removed] = self.player.inventory.get(removed, 0) + 1
+                    # Attack creature first, then mine tile
+                    hit_creature = False
+                    click_rect = pygame.Rect(world_x - 4, world_y - 4, 8, 8)
+                    for c in self.creature_mgr.creatures:
+                        if c.alive and c._get_rect().colliderect(click_rect):
+                            c.take_damage(15)
+                            hit_creature = True
+                            break
+                    if not hit_creature:
+                        removed = self.world.remove_tile(tx, ty)
+                        if removed:
+                            self.player.inventory[removed] = self.player.inventory.get(removed, 0) + 1
                 elif event.button == 3:
-                    if self.player.selected_block and self.player.inventory.get(self.player.selected_block, 0) > 0:
+                    selected = self.inventory_ui.get_selected_item()
+                    if selected and self.player.inventory.get(selected, 0) > 0:
                         if self.world.get_tile(tx, ty) is None:
-                            self.world.set_tile(tx, ty, self.player.selected_block)
-                            self.player.inventory[self.player.selected_block] -= 1
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_1:
-                    self.player.selected_block = "dirt"
-                elif event.key == pygame.K_2:
-                    self.player.selected_block = "stone"
-                elif event.key == pygame.K_3:
-                    self.player.selected_block = "sand"
-                elif event.key == pygame.K_4:
-                    self.player.selected_block = "wood"
-                elif event.key == pygame.K_ESCAPE:
+                            self.world.set_tile(tx, ty, selected)
+                            self.player.inventory[selected] -= 1
+            # Inventory UI handles key/scroll for slot selection
+            if self.inventory_ui.handle_event(event):
+                self.player.selected_block = self.inventory_ui.get_selected_item()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
                     self.playing = False
                     self.running = False
 
@@ -90,9 +120,13 @@ class Game:
         self.screen.fill(BLACK)
         self.background.draw(self.player.x, self.player.y)
         self._draw_tiles()
+        self.creature_mgr.draw(self.screen, self.camera)
         self.player.draw(self.screen, self.camera)
         self._draw_hud()
         self._draw_cursor_highlight()
+        self.health_bar.draw(self.screen)
+        self.mana_bar.draw(self.screen)
+        self.inventory_ui.draw(self.screen, self.player.inventory)
         pygame.display.flip()
 
     def _draw_tiles(self):
@@ -113,25 +147,13 @@ class Game:
                     pygame.draw.rect(self.screen, color, (sx, sy, TILE_SIZE, TILE_SIZE))
 
     def _draw_hud(self):
-        """Minimal HUD: coords, biome, inventory summary."""
+        """Minimal HUD: coords, biome, FPS."""
         biome = self.world.get_biome(self.player.x, self.player.y)
         tx = int(self.player.x) // TILE_SIZE
         ty = int(self.player.y) // TILE_SIZE
         info = f"Pos: ({tx}, {ty})  Biome: {biome}  FPS: {int(self.clock.get_fps())}"
         surf = self.font.render(info, True, WHITE)
         self.screen.blit(surf, (8, 8))
-
-        inv_parts = []
-        for item, count in self.player.inventory.items():
-            if count > 0:
-                inv_parts.append(f"{item}:{count}")
-        inv_text = "Inventory: " + "  ".join(inv_parts) if inv_parts else "Inventory: (empty)"
-        inv_surf = self.font.render(inv_text, True, WHITE)
-        self.screen.blit(inv_surf, (8, 28))
-
-        sel = self.player.selected_block or "none"
-        sel_surf = self.font.render(f"Selected [1-4]: {sel}", True, YELLOW)
-        self.screen.blit(sel_surf, (8, 48))
 
     def _draw_cursor_highlight(self):
         """Highlight the tile under the mouse cursor."""

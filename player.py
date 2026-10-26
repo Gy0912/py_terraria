@@ -27,6 +27,8 @@ class Player:
 
         self.inventory = {}
         self.selected_block = "dirt"
+        self.fall_start_y = self.y
+        self.fall_damage = 0
 
     # ------------------------------------------------------------------
     # Collision helpers
@@ -63,6 +65,7 @@ class Player:
         if self.on_ground and (keys[pygame.K_w] or keys[pygame.K_UP] or keys[pygame.K_SPACE]):
             self.vy = self.jump_power
             self.on_ground = False
+            self.fall_start_y = self.y
 
         # Gravity
         self.vy += self.gravity
@@ -84,16 +87,25 @@ class Player:
         player_rect = self._get_rect()
         if self._collides_with_world(player_rect):
             if self.vy > 0:
-                # snap to top of tile
                 tile_ty = int(player_rect.bottom - 1) // TILE_SIZE
                 self.y = tile_ty * TILE_SIZE - self.height
+                # Fall damage
+                fall_dist = (self.y - self.fall_start_y) / TILE_SIZE
+                if fall_dist > 8:
+                    self.fall_damage = int((fall_dist - 8) * 3)
+                else:
+                    self.fall_damage = 0
                 self.on_ground = True
             else:
                 tile_ty = int(player_rect.top) // TILE_SIZE
                 self.y = (tile_ty + 1) * TILE_SIZE
+                self.fall_damage = 0
             self.vy = 0
         else:
+            if self.vy <= 0 or not self.on_ground:
+                pass  # still in air
             self.on_ground = False
+            self.fall_damage = 0
 
     def _clamp_x(self):
         self.x = max(0, min(self.x, MAP_WIDTH - self.width))
