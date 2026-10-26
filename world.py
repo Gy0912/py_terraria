@@ -2,26 +2,26 @@ import random
 import pygame
 from settings import *
 
+
 class World:
     def __init__(self):
-        self.biome_map = self.generate_biomes()
+        self.biome_strips = self.generate_biome_strips()
+        self.tiles = {}
+        self.generate_terrain()
 
-    def generate_biomes(self):
-        biomes = ["forest"] * 100  # 初始化全部为森林
+    def generate_biome_strips(self):
+        """Generate a 100-element strip array mapping horizontal zones to surface biomes."""
+        biomes = ["forest"] * 100
 
-        # 两侧各 10 份设为海洋
         biomes[:10] = ["ocean"] * 10
         biomes[-10:] = ["ocean"] * 10
 
-        # 中间 16 份保持森林
         middle_start = 42
         middle_end = middle_start + 16
         biomes[middle_start:middle_end] = ["forest"] * 16
 
-        # 不允许上述群系被覆盖
         protected_ranges = [(0, 13), (42, 58), (86, 100)]
 
-        # 随机决定丛林雪地的左右并生成
         left_biome, right_biome = random.sample(["snow", "jungle"], 2)
         left_start = random.randint(13, 42 - 28 + 1)
         biomes[left_start:left_start + 28] = [left_biome] * 28
@@ -35,7 +35,6 @@ class World:
                     return True
             return False
 
-        # 生成沙漠
         desert_parts = [11, 7]
         is_left = False
         for part_len in desert_parts:
@@ -43,7 +42,7 @@ class World:
                 pos = random.randint(13, 86 - part_len)
                 if i == 0:
                     is_left = pos < 42
-                elif (pos <= 42 and is_left) or (pos >= 58 and not is_left): 
+                elif (pos <= 42 and is_left) or (pos >= 58 and not is_left):
                     break
                 if not is_conflict(pos, part_len):
                     biomes[pos:pos + part_len] = ["desert"] * part_len
@@ -51,38 +50,80 @@ class World:
                     break
             else:
                 raise RuntimeError("Failed to insert desert part.")
-                    
-        biome_map = [[None for _ in range(ACTUAL_MAP_HEIGHT)] for _ in range(ACTUAL_MAP_WIDTH)]
 
-        for x in range(ACTUAL_MAP_WIDTH):
-            biome_index = int(x / (ACTUAL_MAP_WIDTH / 100))
-            surface_biome = biomes[biome_index]
+        return biomes
 
-            for y in range(ACTUAL_MAP_HEIGHT):
-                if y < ACTUAL_SKY_HEIGHT:
-                    biome_map[x][y] = "space"
-                elif ACTUAL_SKY_HEIGHT <= y < ACTUAL_GROUND_HEIGHT:
-                    biome_map[x][y] = surface_biome
-                elif ACTUAL_GROUND_HEIGHT <= y < ACTUAL_CAVE_HEIGHT:
-                    if surface_biome == "forest" or surface_biome == "desert":
-                        biome_map[x][y] = "under_ground"
-                    elif surface_biome == "snow":
-                        biome_map[x][y] = "under_snow"
-                    elif surface_biome == "jungle":
-                        biome_map[x][y] = "under_jungle"
-                    elif surface_biome == "ocean":
-                        biome_map[x][y] = "under_ocean"
-                elif ACTUAL_CAVE_HEIGHT <= y < ACTUAL_HELL_HEIGHT:
-                    biome_map[x][y] = "cave"
-                elif ACTUAL_HELL_HEIGHT <= y < ACTUAL_MAP_HEIGHT:
-                    biome_map[x][y] = "hell"
-                else:
-                    biome_map[x][y] = "void"
-        return biome_map
+    def get_surface_biome(self, tile_x):
+        """Return the surface biome name for a given tile column."""
+        biome_index = int(tile_x / (ACTUAL_MAP_WIDTH / 100))
+        biome_index = max(0, min(biome_index, 99))
+        return self.biome_strips[biome_index]
 
-    def get_biome(self, x, y):
-        x = x // TILE_SIZE
-        y = y // TILE_SIZE
-        if 0 <= x < ACTUAL_MAP_WIDTH and 0 <= y < ACTUAL_MAP_HEIGHT:
-            return self.biome_map[x][y]
-        return "void"
+    def get_biome(self, pixel_x, pixel_y):
+        """Return the biome at a pixel position (computed on-the-fly, no matrix)."""
+        tx = pixel_x // TILE_SIZE
+        ty = pixel_y // TILE_SIZE
+        if not (0 <= tx < ACTUAL_MAP_WIDTH and 0 <= ty < ACTUAL_MAP_HEIGHT):
+            return "void"
+
+        surface_biome = self.get_surface_biome(tx)
+
+        if ty < ACTUAL_SKY_HEIGHT:
+            return "space"
+        elif ty < ACTUAL_GROUND_HEIGHT:
+            return surface_biome
+        elif ty < ACTUAL_CAVE_HEIGHT:
+            if surface_biome in ("forest", "desert"):
+                return "under_ground"
+            elif surface_biome == "snow":
+                return "under_snow"
+            elif surface_biome == "jungle":
+                return "under_jungle"
+            elif surface_biome == "ocean":
+                return "under_ocean"
+            return "under_ground"
+        elif ty < ACTUAL_HELL_HEIGHT:
+            return "cave"
+        else:
+            return "hell"
+
+    # ------------------------------------------------------------------
+    # Tile terrain
+    # ------------------------------------------------------------------
+
+    def generate_terrain(self):
+        """Generate a sparse tile dict around the ground surface layer.
+
+        Only tiles near the surface are pre-generated.  Deeper layers can be
+        generated later on demand.  Each tile is stored as
+        ``self.tiles[(tx, ty)] = tile_type_string``.
+        """
+        surface_ty = ACTUAL_GROUND_HEIGHT
+
+        for tx in range(ACTUAL_MAP_WIDTH):
+            surface_biome = self.get_surface_biome(tx)
+            variation = random.randint(-2, 2)
+            local_surface = surface_ty + variation
+
+            if surface_biome == "ocean":
+                self.tiles[(tx, local_surface)] = "sand"
+                for depth in range(1, 6):
+                    self.tiles[(tx, local_surface + depth)] = "sand"
+            else:
+                self.tiles[(tx, local_surface)] = "grass"
+                for depth in range(1, 4):
+                    self.tiles[(tx, local_surface + depth)] = "dirt"
+                for depth in range(4, 8):
+                    self.tiles[(tx, local_surface + depth)] = "stone"
+
+    def get_tile(self, tx, ty):
+        """Return tile type at tile coords, or None for air."""
+        return self.tiles.get((tx, ty))
+
+    def set_tile(self, tx, ty, tile_type):
+        """Place or overwrite a tile."""
+        self.tiles[(tx, ty)] = tile_type
+
+    def remove_tile(self, tx, ty):
+        """Remove (mine) a tile. Returns the old tile type or None."""
+        return self.tiles.pop((tx, ty), None)

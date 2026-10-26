@@ -29,6 +29,15 @@ YELLOW = (255, 255, 0)
 LIGHTBLUE = (0, 155, 155)
 GRAY = (125, 125, 125)
 
+# Tile colors (placeholder; will be replaced by sprites later)
+TILE_COLORS = {
+    "grass": (34, 139, 34),
+    "dirt":  (139, 90, 43),
+    "stone": (128, 128, 128),
+    "sand":  (210, 180, 100),
+    "wood":  (160, 82, 45),
+}
+
 # Images path
 SCREEN_IMAGES = "images/screen_pics/"
 BACKGROUND_IMAGES = "images/background_pics/"
