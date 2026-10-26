@@ -1,13 +1,29 @@
+import math
+import random
+
 import pygame
+
 from settings import *
-from player import Player
+from tiles import T
+from items import ITEMS
 from world import World
-from background import Background
+from player import Player
 from camera import Camera
-from healthbar import HealthBar
-from manabar import ManaBar
+from background import Background
 from creatures import CreatureManager
 from inventory import InventoryUI
+from entities import ItemDrop, Particle, FloatingText
+from textures import Assets
+from render import WorldRenderer
+from lighting import Lighting
+from minimap import Minimap
+from healthbar import HealthBar
+from manabar import ManaBar
+from ui import get_font, draw_text, Button
+import actions
+
+STATION_IDS = {T["workbench"]: "workbench", T["furnace"]: "furnace", T["anvil"]: "anvil"}
+CONTROLS = "A/D 移动  空格 跳跃  左键 使用物品  1-0/滚轮 切换  E 背包与制作  H 快速治疗  M 小地图缩放  Esc 暂停"
 
 
 class Game:
@@ -17,23 +33,107 @@ class Game:
         pygame.display.set_caption(TITLE)
         self.clock = pygame.time.Clock()
         self.running = True
-        self.font = pygame.font.Font(None, 22)
+        self.playing = False
+        self.assets = Assets()
+        self.assets.load()
+        self.background = Background(self.screen)
+        img = pygame.image.load(IMAGES_PATH["start_screen"]).convert()
+        self.start_image = pygame.transform.scale(img, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.text_font = get_font(16, bold=True)
+        self.health_bar = HealthBar()
+        self.mana_bar = ManaBar()
+        self.menu_buttons = [Button("开始游戏", (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50)),
+                             Button("退出游戏", (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 120))]
+
+    # ------------------------------------------------------------------
+    # Start screen
+    # ------------------------------------------------------------------
+
+    def show_start_screen(self):
+        """Returns True to start a game, False to quit."""
+        start_btn, quit_btn = self.menu_buttons
+        while True:
+            self.clock.tick(FPS)
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT or quit_btn.clicked(event):
+                    self.running = False
+                    return False
+                if start_btn.clicked(event):
+                    return True
+                if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    return True
+            self.draw_start_screen()
+            pygame.display.flip()
+
+    def draw_start_screen(self):
+        cx = SCREEN_WIDTH // 2
+        self.screen.blit(self.start_image, (0, 0))
+        shade = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        shade.fill((0, 0, 20, 90))
+        self.screen.blit(shade, (0, 0))
+        draw_text(self.screen, f"{TITLE} · 2D 沙盒生存冒险", (cx, SCREEN_HEIGHT // 2 - 10), 26,
+                  (255, 235, 140), center=True, bold=True)
+        for b in self.menu_buttons:
+            b.draw(self.screen)
+        draw_text(self.screen, CONTROLS, (cx, SCREEN_HEIGHT - 40), 14, (220, 220, 220), center=True)
+        draw_text(self.screen, f"Version {VERSION}", (SCREEN_WIDTH - 110, SCREEN_HEIGHT - 20), 13, (200, 200, 200))
 
     # ------------------------------------------------------------------
     # New game
     # ------------------------------------------------------------------
 
     def new(self):
-        self.world = World()
-        self.background = Background(self.screen)
+        self.setup()
+        self.run()
+
+    def setup(self, seed=None):
+        self.screen.fill(BLACK)
+        draw_text(self.screen, "正在生成世界……", (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2), 28, center=True)
+        pygame.display.flip()
+
+        self.world = World(random.randrange(1 << 30) if seed is None else seed)
         self.player = Player(self.world)
         self.camera = Camera()
-        self.health_bar = HealthBar(100)
-        self.mana_bar = ManaBar(50)
-        self.creature_mgr = CreatureManager(self.world)
-        self.inventory_ui = InventoryUI()
-        self.damage_cooldown = 0
-        self.run()
+        self.creatures = CreatureManager(self.world)
+        self.inv_ui = InventoryUI(self.player.inventory, self.assets)
+        self.renderer = WorldRenderer(self.world, self.assets)
+        self.lighting = Lighting()
+        self.minimap = Minimap(self.world, (SCREEN_WIDTH - 210, 54, 200, 140))
+        self.drops = []
+        self.projectiles = []
+        self.particles = []
+        self.texts = []
+        self.notices = {}
+        self.ticks = int(START_HOUR / 24 * DAY_LENGTH)
+        self.state = "playing"
+        self.mouse_blocked = False
+        self.pause_buttons = [Button("继续游戏", (SCREEN_WIDTH // 2, 290)),
+                              Button("返回主菜单", (SCREEN_WIDTH // 2, 360)),
+                              Button("退出游戏", (SCREEN_WIDTH // 2, 430))]
+        self.death_buttons = [Button("复活", (SCREEN_WIDTH // 2, 330)),
+                              Button("返回主菜单", (SCREEN_WIDTH // 2, 400))]
+        self.camera.update(*self.player.center())
+
+    # ------------------------------------------------------------------
+    # Time of day
+    # ------------------------------------------------------------------
+
+    def hour(self):
+        return (self.ticks % DAY_LENGTH) / DAY_LENGTH * 24
+
+    def is_night(self):
+        h = self.hour()
+        return h >= 19.5 or h < 4.5
+
+    def daylight(self):
+        h = self.hour()
+        if 6 <= h < 18:
+            return 1.0
+        if 18 <= h < 19.5:
+            return 1.0 - (h - 18) / 1.5 * 0.78
+        if 4.5 <= h < 6:
+            return 0.22 + (h - 4.5) / 1.5 * 0.78
+        return 0.22
 
     # ------------------------------------------------------------------
     # Main loop
@@ -44,175 +144,311 @@ class Game:
         while self.playing:
             self.clock.tick(FPS)
             self.events()
-            self.update()
+            if not self.playing:
+                break
+            if self.state == "playing":
+                self.update()
             self.draw()
-
-    def update(self):
-        keys = pygame.key.get_pressed()
-        self.player.update(keys)
-        # Apply fall damage
-        if self.player.fall_damage > 0:
-            self.health_bar.take_damage(self.player.fall_damage)
-            self.player.fall_damage = 0
-        # Track fall start when not on ground
-        if not self.player.on_ground and self.player.vy <= 0:
-            self.player.fall_start_y = self.player.y
-        # Creatures
-        self.creature_mgr.update(self.player.x, self.player.y)
-        if self.damage_cooldown > 0:
-            self.damage_cooldown -= 1
-        else:
-            contact_dmg = self.creature_mgr.check_player_collision(self.player)
-            if contact_dmg > 0:
-                self.health_bar.take_damage(contact_dmg)
-                self.damage_cooldown = 30  # invincibility frames
-        self.camera.update(self.player.x, self.player.y)
-        biome = self.world.get_biome(self.player.x, self.player.y)
-        self.background.update(biome)
-
-    # ------------------------------------------------------------------
-    # Events
-    # ------------------------------------------------------------------
+            pygame.display.flip()
 
     def events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.playing = False
                 self.running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                mx, my = event.pos
-                world_x = int(mx + self.camera.x)
-                world_y = int(my + self.camera.y)
-                tx = world_x // TILE_SIZE
-                ty = world_y // TILE_SIZE
-                if event.button == 1:
-                    # Attack creature first, then mine tile
-                    hit_creature = False
-                    click_rect = pygame.Rect(world_x - 4, world_y - 4, 8, 8)
-                    for c in self.creature_mgr.creatures:
-                        if c.alive and c._get_rect().colliderect(click_rect):
-                            c.take_damage(15)
-                            hit_creature = True
-                            break
-                    if not hit_creature:
-                        removed = self.world.remove_tile(tx, ty)
-                        if removed:
-                            self.player.inventory[removed] = self.player.inventory.get(removed, 0) + 1
-                elif event.button == 3:
-                    selected = self.inventory_ui.get_selected_item()
-                    if selected and self.player.inventory.get(selected, 0) > 0:
-                        if self.world.get_tile(tx, ty) is None:
-                            self.world.set_tile(tx, ty, selected)
-                            self.player.inventory[selected] -= 1
-            # Inventory UI handles key/scroll for slot selection
-            if self.inventory_ui.handle_event(event):
-                self.player.selected_block = self.inventory_ui.get_selected_item()
+                return
+            if self.state == "paused":
+                self._pause_event(event)
+                continue
+            if self.state == "dead":
+                self._death_event(event)
+                continue
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    self.playing = False
-                    self.running = False
+                    if self.inv_ui.open:
+                        self.inv_ui.close(self)
+                    else:
+                        self.state = "paused"
+                elif event.key in (pygame.K_e, pygame.K_TAB):
+                    if self.inv_ui.open:
+                        self.inv_ui.close(self)
+                    else:
+                        self.inv_ui.open = True
+                elif event.key == pygame.K_h:
+                    actions.quick_heal(self)
+                elif event.key == pygame.K_m:
+                    self.minimap.toggle_zoom()
+                else:
+                    self.inv_ui.handle_key(event.key)
+            elif event.type == pygame.MOUSEWHEEL:
+                self.inv_ui.handle_wheel(event.y, pygame.mouse.get_pos())
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
+                if self.inv_ui.over_ui(event.pos):
+                    self.inv_ui.handle_click(event.pos, event.button, self)
+                    self.mouse_blocked = True
+                elif self.inv_ui.cursor:
+                    name, count = self.inv_ui.cursor
+                    self.inv_ui.cursor = None
+                    self.drop_item(name, count)
+                    self.mouse_blocked = True
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self.mouse_blocked = False
+
+    def _pause_event(self, event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.state = "playing"
+        resume, menu, quit_ = self.pause_buttons
+        if resume.clicked(event):
+            self.state = "playing"
+        elif menu.clicked(event):
+            self.playing = False
+        elif quit_.clicked(event):
+            self.playing = False
+            self.running = False
+
+    def _death_event(self, event):
+        respawn, menu = self.death_buttons
+        if respawn.clicked(event) or (event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN):
+            self.player.respawn()
+            self.creatures.clear()
+            self.state = "playing"
+            self.mouse_blocked = True
+        elif menu.clicked(event):
+            self.playing = False
+
+    # ------------------------------------------------------------------
+    # Update
+    # ------------------------------------------------------------------
+
+    def update(self):
+        self.ticks += 1
+        p = self.player
+        keys = pygame.key.get_pressed()
+
+        mouse = pygame.mouse.get_pos()
+        if (pygame.mouse.get_pressed()[0] and not self.mouse_blocked
+                and not self.inv_ui.over_ui(mouse) and not self.inv_ui.cursor):
+            actions.try_use(self)
+
+        p.update(keys)
+        dmg = p.take_pending_damage()
+        if dmg:
+            self.add_text(f"-{dmg}", (255, 80, 80))
+        actions.update_use(self)
+
+        self.creatures.update(p, self.is_night())
+        if p.alive:
+            for c in self.creatures.creatures:
+                if c.rect().colliderect(p.rect()):
+                    dealt = p.hurt(c.t["dmg"], c.center()[0])
+                    if dealt:
+                        self.add_text(f"-{dealt}", (255, 80, 80))
+                        self.burst(*p.center(), (200, 30, 30), 6)
+                    break
+
+        for pr in self.projectiles:
+            pr.update(self.world, self)
+            if not pr.alive:
+                continue
+            r = pr.rect()
+            for c in self.creatures.creatures:
+                if c.alive and r.colliderect(c.rect()):
+                    self.on_creature_hit(c, c.hit(pr.damage, pr.x - pr.vx, pr.knockback))
+                    pr.alive = False
+                    break
+        self.projectiles = [pr for pr in self.projectiles if pr.alive]
+
+        self._update_drops()
+
+        for pt in self.particles:
+            pt.update()
+        self.particles = [pt for pt in self.particles if pt.life > 0][-500:]
+        for t in self.texts:
+            t.update()
+        self.texts = [t for t in self.texts if t.life > 0]
+        for key in list(self.notices):
+            self.notices[key] -= 1
+            if self.notices[key] <= 0:
+                del self.notices[key]
+
+        self.world.tick_damage()
+        if self.ticks % 15 == 0:
+            self.inv_ui.stations = self.nearby_stations()
+
+        self.camera.update(*p.center())
+        self.background.update(self.world.get_biome(*p.center()))
+        self.minimap.update(p)
+
+        if not p.alive:
+            self.state = "dead"
+            self.burst(*p.center(), (200, 30, 30), 30, speed=5)
+            self.inv_ui.close(self)
+
+    def _update_drops(self):
+        p = self.player
+        px, py = p.center()
+        for d in self.drops:
+            d.update(self.world, p)
+            if not d.alive or d.pickup_delay > 0 or not p.alive:
+                continue
+            cx, cy = d.center()
+            if math.hypot(px - cx, py - cy) < PICKUP_RADIUS:
+                left = p.inventory.add(d.name, d.count)
+                picked = d.count - left
+                if picked:
+                    self.add_text(f"+{picked} {ITEMS[d.name].display}", (255, 255, 255))
+                d.count = left
+                if left == 0:
+                    d.alive = False
+        self.drops = [d for d in self.drops if d.alive]
+
+    def nearby_stations(self):
+        cx, cy = self.player.center()
+        tx, ty = int(cx) // TILE_SIZE, int(cy) // TILE_SIZE
+        found = set()
+        for y in range(ty - 3, ty + 4):
+            for x in range(tx - 5, tx + 6):
+                name = STATION_IDS.get(self.world.get_tile(x, y))
+                if name:
+                    found.add(name)
+        return found
+
+    # ------------------------------------------------------------------
+    # Helpers used by actions / inventory
+    # ------------------------------------------------------------------
+
+    def on_creature_hit(self, c, dealt):
+        cx, cy = c.center()
+        self.add_text(str(dealt), (255, 210, 80), (cx, c.y - 10))
+        self.burst(cx, cy, (200, 40, 40) if "slime" not in c.kind else (120, 200, 255), 5)
+        if not c.alive:
+            self.burst(cx, cy, (230, 230, 230), 14, speed=3.5)
+            for name, lo, hi, chance in c.t["drops"]:
+                if random.random() < chance:
+                    self.drop_item_at(name, random.randint(lo, hi), cx, cy)
+
+    def drop_item_at(self, name, count, x, y):
+        if name and count > 0:
+            self.drops.append(ItemDrop(name, count, x, y))
+
+    def drop_item(self, name, count):
+        """Throw an item from the player in the facing direction."""
+        p = self.player
+        cx, cy = p.center()
+        self.drops.append(ItemDrop(name, count, cx + p.facing * 10, cy - 10,
+                                   vx=p.facing * 4.0, vy=-3.0, pickup_delay=90))
+
+    def burst(self, x, y, color, n, speed=2.5):
+        for _ in range(n):
+            a = random.uniform(0, math.tau)
+            v = random.uniform(0.5, speed)
+            col = tuple(max(0, min(255, int(c * random.uniform(0.75, 1.15)))) for c in color[:3])
+            self.particles.append(Particle(x, y, math.cos(a) * v, math.sin(a) * v - 1.0, col,
+                                           life=random.randint(18, 35)))
+
+    def add_text(self, text, color, pos=None):
+        if pos is None:
+            cx, _ = self.player.center()
+            pos = (cx, self.player.y - 12)
+        self.texts.append(FloatingText(text, pos[0], pos[1], color, self.text_font))
+
+    def notify(self, text):
+        """Floating message above the player, throttled so holding the mouse doesn't spam it."""
+        if text not in self.notices:
+            self.notices[text] = 90
+            self.add_text(text, (255, 220, 120))
 
     # ------------------------------------------------------------------
     # Draw
     # ------------------------------------------------------------------
 
     def draw(self):
-        self.screen.fill(BLACK)
-        self.background.draw(self.player.x, self.player.y)
-        self._draw_tiles()
-        self.creature_mgr.draw(self.screen, self.camera)
-        self.player.draw(self.screen, self.camera)
+        screen = self.screen
+        cam = self.camera
+        p = self.player
+        screen.fill(BLACK)
+        self.background.draw(p.x, p.y)
+        self.renderer.draw(screen, cam)
+        self.renderer.draw_cracks(screen, cam)
+        for d in self.drops:
+            d.draw(screen, cam, self.assets)
+        self.creatures.draw(screen, cam, self.assets)
+        for pr in self.projectiles:
+            pr.draw(screen, cam)
+        p.draw(screen, cam, self.assets)
+        for pt in self.particles:
+            pt.draw(screen, cam)
+
+        lights = []
+        if p.alive:
+            lights.append((*p.center(), 4, 0.6))
+        for pr in self.projectiles:
+            if pr.kind == "bolt":
+                lights.append((pr.x, pr.y, 4, 0.9))
+        for c in self.creatures.creatures:
+            if "light" in c.t:
+                lights.append((*c.center(), *c.t["light"]))
+        self.lighting.render(screen, self.world, cam, self.daylight(), lights)
+
+        self._draw_cursor()
+        for t in self.texts:
+            t.draw(screen, cam)
         self._draw_hud()
-        self._draw_cursor_highlight()
-        self.health_bar.draw(self.screen)
-        self.mana_bar.draw(self.screen)
-        self.inventory_ui.draw(self.screen, self.player.inventory)
-        pygame.display.flip()
+        if self.state == "paused":
+            self._draw_overlay("已暂停", (0, 0, 30, 160), self.pause_buttons)
+            draw_text(screen, CONTROLS, (SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40), 14, center=True)
+        elif self.state == "dead":
+            self._draw_overlay("你死了", (60, 0, 0, 150), self.death_buttons, (255, 90, 90))
 
-    def _draw_tiles(self):
-        """Render only tiles visible on screen."""
-        cam_x, cam_y = int(self.camera.x), int(self.camera.y)
-        start_tx = max(cam_x // TILE_SIZE, 0)
-        start_ty = max(cam_y // TILE_SIZE, 0)
-        end_tx = min((cam_x + SCREEN_WIDTH) // TILE_SIZE + 1, ACTUAL_MAP_WIDTH)
-        end_ty = min((cam_y + SCREEN_HEIGHT) // TILE_SIZE + 1, ACTUAL_MAP_HEIGHT)
-
-        for tx in range(start_tx, end_tx):
-            for ty in range(start_ty, end_ty):
-                tile = self.world.get_tile(tx, ty)
-                if tile is not None:
-                    color = TILE_COLORS.get(tile, GRAY)
-                    sx = tx * TILE_SIZE - cam_x
-                    sy = ty * TILE_SIZE - cam_y
-                    pygame.draw.rect(self.screen, color, (sx, sy, TILE_SIZE, TILE_SIZE))
+    def _draw_cursor(self):
+        p = self.player
+        item = self.inv_ui.selected_item()
+        if not p.alive or not item or ITEMS[item].kind not in ("tool", "block") or self.inv_ui.over_ui(
+                pygame.mouse.get_pos()):
+            return
+        wx, wy = actions.mouse_world(self)
+        tx, ty = int(wx) // TILE_SIZE, int(wy) // TILE_SIZE
+        if actions.in_reach(p, tx, ty):
+            sx, sy = self.camera.apply(tx * TILE_SIZE, ty * TILE_SIZE)
+            pygame.draw.rect(self.screen, (255, 255, 255), (sx, sy, TILE_SIZE, TILE_SIZE), 1)
 
     def _draw_hud(self):
-        """Minimal HUD: coords, biome, FPS."""
-        biome = self.world.get_biome(self.player.x, self.player.y)
-        tx = int(self.player.x) // TILE_SIZE
-        ty = int(self.player.y) // TILE_SIZE
-        info = f"Pos: ({tx}, {ty})  Biome: {biome}  FPS: {int(self.clock.get_fps())}"
-        surf = self.font.render(info, True, WHITE)
-        self.screen.blit(surf, (8, 8))
+        screen = self.screen
+        p = self.player
+        self.health_bar.draw(screen, p.hp, p.max_hp)
+        self.mana_bar.draw(screen, p.mana, p.max_mana)
+        self.minimap.draw(screen, p, self.creatures.creatures)
 
-    def _draw_cursor_highlight(self):
-        """Highlight the tile under the mouse cursor."""
-        mx, my = pygame.mouse.get_pos()
-        world_x = int(mx + self.camera.x)
-        world_y = int(my + self.camera.y)
-        tx = world_x // TILE_SIZE
-        ty = world_y // TILE_SIZE
-        sx = tx * TILE_SIZE - int(self.camera.x)
-        sy = ty * TILE_SIZE - int(self.camera.y)
-        pygame.draw.rect(self.screen, WHITE, (sx, sy, TILE_SIZE, TILE_SIZE), 1)
+        cx, cy = p.center()
+        tx, ty = int(cx) // TILE_SIZE, int(cy) // TILE_SIZE
+        layer = self.world.layer_at(tx, ty)
+        if layer in ("space", "hell"):
+            place = LAYER_NAMES[layer]
+        else:
+            place = f"{BIOME_NAMES[self.world.biome_at(tx, ty)]} · {LAYER_NAMES[layer]}"
+        h = self.hour()
+        clock = f"{int(h):02d}:{int(h % 1 * 60):02d} {'夜晚' if self.is_night() else '白天'}"
+        info = (f"{place}   坐标 {tx}  深度 {ty - SURFACE_LEVEL}   {clock}   "
+                f"FPS {int(self.clock.get_fps())}")
+        draw_text(screen, info, (10, SCREEN_HEIGHT - 26), 15)
+        if p.heal_cd > 0:
+            draw_text(screen, f"治疗冷却 {p.heal_cd // FPS + 1}s", (SCREEN_WIDTH - 210, 198), 14,
+                      (255, 160, 160))
+        self.inv_ui.draw(screen)
 
-    # ------------------------------------------------------------------
-    # Screens
-    # ------------------------------------------------------------------
-
-    def show_start_screen(self):
-        self.screen.fill(BLACK)
-        waiting = True
-        font = pygame.font.Font(None, 48)
-        version_font = pygame.font.Font(None, 24)
-        image = pygame.image.load(IMAGES_PATH["start_screen"]).convert()
-        image = pygame.transform.scale(image, (SCREEN_WIDTH, SCREEN_HEIGHT))
-        enter_text = font.render("Press 'ENTER' to Start Game", True, WHITE)
-        text_x = (SCREEN_WIDTH - enter_text.get_width()) // 2
-        text_y = SCREEN_HEIGHT - 100
-        version_text = version_font.render("Version 0.1.0", True, (200, 200, 200))
-        show_text = True
-        blink_time = 0
-        blink_clock = pygame.time.Clock()
-        while waiting:
-            self.clock.tick(FPS)
-            self.screen.blit(image, (0, 0))
-            blink_time += blink_clock.tick(FPS)
-            if blink_time >= 400:
-                show_text = not show_text
-                blink_time = 0
-            if show_text:
-                self.screen.blit(enter_text, (text_x, text_y))
-            self.screen.blit(version_text, (SCREEN_WIDTH - 100, SCREEN_HEIGHT - 30))
-            pygame.display.flip()
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    waiting = False
-                    self.running = False
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_RETURN]:
-                waiting = False
-
-    def show_game_over_screen(self):
-        pass
-
-    def pause_screen(self):
-        pass
+    def _draw_overlay(self, title, color, buttons, title_color=(255, 255, 255)):
+        dim = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        dim.fill(color)
+        self.screen.blit(dim, (0, 0))
+        draw_text(self.screen, title, (SCREEN_WIDTH // 2, 200), 56, title_color, center=True, bold=True)
+        for b in buttons:
+            b.draw(self.screen)
 
 
 if __name__ == '__main__':
     game = Game()
-    game.show_start_screen()
     while game.running:
+        if not game.show_start_screen():
+            break
         game.new()
     pygame.quit()

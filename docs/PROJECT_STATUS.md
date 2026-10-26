@@ -1,64 +1,75 @@
 # 项目状态（PROJECT_STATUS）
 
 **更新日期**：2026-10-26  
-**当前里程碑**：Milestone 1 — 最小可玩基础（核心完成，待桌面验证）
+**版本**：0.2.0  
+**当前里程碑**：Milestone 1 已完成；按用户要求提前实现了 Milestone 2–4 的部分内容（群系环境关联、战斗、制作）
 
-本文区分：**已验证** | **静态推断** | **未测试**
-
----
-
-## 文件与模块
-
-| 路径 | 说明 | 状态 |
-|------|------|------|
-| `game.py` | 入口、主循环、瓦片渲染、事件（挖掘/放置/攻击）、HUD | 已实现 |
-| `settings.py` | 窗口、地图常量、`TILE_COLORS`（含矿石/树木）、`IMAGES_PATH` | 已实现 |
-| `world.py` | 按需群系查询 + 稀疏瓦片 dict + 地形生成（地表/地下/矿石/洞穴/树木） | 已实现 |
-| `background.py` | 群系背景加载与视差绘制 | 未修改 |
-| `player.py` | 重力/碰撞/跳跃/物品栏/落下伤害/绘制 | 已实现 |
-| `camera.py` | 跟随玩家 + 世界→屏幕坐标转换 | 已实现 |
-| `creatures.py` | `Creature` + `CreatureManager`：基础敌人AI、碰撞伤害、点击攻击 | 已实现 |
-| `inventory.py` | `InventoryUI`：底部 9 格工具栏、数字键/滚轮选择 | 已实现 |
-| `healthbar.py` | `HealthBar`：右上角 HP 条 | 已实现 |
-| `manabar.py` | `ManaBar`：HP 下方 MP 条（预留） | 已实现 |
-| `images/` | 13 张群系 JPG + 开始图 | 未修改 |
+本文区分：**已验证（冒烟测试）** | **已验证（截图人工检查）** | **未验证**
 
 ---
 
-## 已实现功能
+## 模块与依赖关系
+
+```
+game.py ─┬─ world.py ── worldgen.py ── tiles.py
+         ├─ player.py ── physics.py, inventory.py, items.py
+         ├─ actions.py ── (world, player, creatures, entities)
+         ├─ creatures.py ── physics.py
+         ├─ entities.py ── physics.py, items.py
+         ├─ render.py / lighting.py / minimap.py ── world.py, textures.py
+         ├─ textures.py ── tiles.py, items.py
+         └─ inventory.py / healthbar.py / manabar.py / ui.py
+```
+
+- 世界数据：`World.chunks[(cx, cy)]` 为 16×16 的 `bytearray`（方块 id），首次访问时由 `WorldGen.generate_chunk` 生成。每个方块都是 `(种子, x, y)` 的纯函数，相邻区块可以按任意顺序生成，结果一致。
+- 修改方块会递增 `chunk_version`，渲染缓存与小地图据此失效并重建。
+
+---
+
+## 功能状态
 
 | 功能 | 状态 | 依据 |
 |------|------|------|
-| 开始界面 + Enter 开始 | 静态推断 | `game.py` |
-| 60 FPS 主循环 | **已验证**（headless） | `game.py` |
-| 群系按需查询 | **已验证** | `world.py` |
-| 地形生成：地表/dirt/stone + 矿石(iron/copper/gold) + 洞穴 + 树木 | **已验证**（~130K tiles, 0.04s） | `world.py` |
-| 玩家渲染 + 相机跟随 | **已验证**（headless init） | `player.py` + `camera.py` |
-| 玩家重力 + 瓦片碰撞 | 静态推断 | `player.py` |
-| 跳跃（W/Space/Up） | 静态推断 | `player.py` |
-| 落下伤害（>8 格） | 静态推断 | `player.py` + `game.py` |
-| 左键挖掘方块 → 物品栏 | 静态推断 | `game.py` |
-| 左键攻击生物（15伤害） | 静态推断 | `game.py` |
-| 右键放置选中方块 | 静态推断 | `game.py` |
-| 底部 9 格工具栏 UI（数字键/滚轮） | **已验证**（headless） | `inventory.py` |
-| 生物系统：巡逻/碰撞伤害/生成/消亡 | **已验证**（headless spawn） | `creatures.py` |
-| HP 条 + MP 条 | **已验证**（headless init） | `healthbar.py` + `manabar.py` |
-| HUD：坐标/群系/FPS | 静态推断 | `game.py` |
-| 鼠标瓦片高亮 | 静态推断 | `game.py` |
-| 背景视差（12种群系） | **已验证**（headless init） | `background.py` |
+| 区块懒加载，从地表到地狱全深度无空洞 | 已验证（冒烟 + 全图渲染检查） | `world.py`、`worldgen.py` |
+| 群系 / 层级相对本地地表高度判定 | 已验证 | `World.layer_at`、`get_biome` |
+| 五个群系各有专属方块（雪 / 冰、泥浆 / 丛林草、沙 / 砂岩等） | 已验证（全图渲染检查） | `WorldGen.base_tile` |
+| 300 个种子都能生成完整的沙漠 / 雪原 / 丛林 | 已验证 | `WorldGen._biome_strips` |
+| 程序化像素贴图（方块、物品、玩家、16 种怪物） | 已验证（截图） | `textures.py` |
+| 挖掘为多次敲击的过程 + 裂纹 4 阶段 + 碎屑粒子 | 已验证（冒烟：草地 31 帧） | `actions.hit_tile`、`render.draw_cracks` |
+| 掉落物弹出、吸附、拾取 | 已验证 | `entities.ItemDrop` |
+| 砍树整棵倒下并掉落木材 | 已验证 | `World.remove_tree` |
+| 放置方块与制作站（支撑规则） | 已验证 | `actions.place_tile` |
+| 制作界面（22 个配方、附近制作站检测） | 已验证 | `inventory.py`、`items.RECIPES` |
+| 站立 / 往下挖不再掉血（第 5 条 bug） | 已验证（站立 300 帧、下挖 25 格均不掉血） | `Player.update` 的 `fall_peak` |
+| 真实的高处坠落仍有伤害 | 已验证（40 格坠落 −84） | `FALL_SAFE_TILES = 12` |
+| 怪物按层级 / 群系 / 昼夜刷新 | 已验证（沙漠、雪原、丛林场景） | `creatures.spawn_table` |
+| 近战击杀与材料掉落 | 已验证（铜短剑击杀史莱姆得凝胶） | `actions.update_use` |
+| 弓箭、法杖、消耗品 | 未单独验证（代码路径与近战共用） | `actions.try_use` |
+| 死亡界面、复活 | 已验证 | `Game._death_event` |
+| 开始界面鼠标按钮、暂停菜单 | 已验证（截图）；点击路径未自动化 | `Game.show_start_screen` |
+| 昼夜与光照 | 已验证（截图） | `lighting.py` |
+| 小地图 | 已验证（截图） | `minimap.py` |
+| 性能 | 已验证：无窗口模式下 update+draw 约 10.4 ms/帧 | `tools/smoke_test.py` |
+
+---
+
+## 本次修复的 bug 根因
+
+1. **往下挖会自动掉血**：旧代码的 `fall_start_y` 只在跳跃时重置，而站立时重力让玩家每帧都"落地"一次，往下挖 8 格以上后每帧都会触发跌落伤害。现在改为记录"上次站稳以来的最高点" `fall_peak`，只在真正从空中落地的那一帧结算。
+2. **地下有未生成区域、地上被判成地下**：旧世界只预生成了地表附近 30 格厚的一层（实际没有任何懒加载代码）；群系分层使用固定行号，而地表在其上下起伏。现在改为区块懒加载 + 相对本地地表的分层判定。
+3. **碰撞边缘取整**：玩家底边的小数部分被向下取整，导致站立时 `on_ground` 隔帧翻转（跳跃可能失灵）。`physics._span` 改为对右边 / 下边向上取整。
+4. **原世界生成的沙漠可能缺失**：放置循环遇到同侧位置会直接放弃。现在保证两段沙漠分居中心森林两侧。
+5. **Windows 字体枚举崩溃**：`pygame.font.SysFont` 在本机读取注册表时抛 `TypeError`。现在直接加载 `C:\Windows\Fonts\msyh.ttc` 等文件。
 
 ---
 
 ## 未实现 / 待做
 
-- 精灵与动画（当前全为色块）
-- 完整合成系统
-- 存档 / 读档
-- 暂停 / 游戏结束界面逻辑
-- 音效与背景音乐
-- 更复杂的生物类型（飞行、Boss）
-- MP 实际消耗机制（当前仅 UI）
-- 更深层地形（按需加载）
+- 存档 / 读档（每次进入都是新世界）
+- 音效与音乐
+- Boss 战（晶状体已作为法杖材料，后续可用作召唤物）
+- 盔甲 / 防御装备、NPC、液体流动
+- 背景墙仅覆盖地表下 30 格；更深处显示群系背景图
 
 ---
 
@@ -66,22 +77,24 @@
 
 | 项 | 状态 |
 |----|------|
-| 入口命令 `python game.py`（项目根） | **headless 冒烟已通过** |
-| 桌面窗口运行 | **未测试** |
-| 依赖 | pygame 2.6.1（MSYS2 Python 3.14.8） |
+| `python tools/smoke_test.py` | **29/29 通过**（MSYS2 Python 3.14.8 + pygame 2.6.1，无窗口模式） |
+| `python game.py` 桌面窗口 | **未验证**：本机任务没有打开真实窗口，需要用户手动试玩 |
+| 依赖 | `requirements.txt`：`pygame>=2.5` |
 
-### 手动冒烟步骤
+### 手动试玩检查清单
 
-1. `Set-Location D:\lab_files\game\py_terraria`
-2. `python game.py`
-3. 预期：开始界面 → Enter → 游戏
-4. 验证：WASD 移动 + 跳跃、地面/树木/矿石可见、左键挖掘/攻击、右键放置
-5. 验证：HP/MP 条、底部工具栏、鼠标高亮、生物出现并可击杀
+1. 开始界面：鼠标点击"开始游戏"、"退出游戏"都有效，按钮有悬停高亮。
+2. 按住左键挖泥土：大约 0.5 秒，能看到裂纹逐级加深；方块碎后弹出掉落物并飞向玩家。
+3. 往下挖 30 格以上：生命值不应下降；周围逐渐变暗，只有玩家周围有光；放置火把可以照亮。
+4. 用斧头砍树：整棵树倒下，得到若干木材；按 E 用 10 个木材制作工作台。
+5. 走到雪原 / 丛林 / 沙漠：地面方块和出现的怪物都应随之变化；夜晚森林会出现僵尸和恶魔眼。
+6. 生命归零：出现"你死了"界面；"复活"回到出生点，"返回主菜单"回到开始界面。
+7. 右上角：生命条、魔力条，下面是小地图（M 键缩放）。
 
 ---
 
-## 重要未知项
+## 已知风险
 
-- 桌面渲染帧率是否稳定
-- 生物碰撞判定手感
-- 大范围挖掘后内存趋势
+- 光照在纯 Python 中逐格计算，火把很密集时可能掉帧（目前单帧约 10 ms）。
+- 已探索区块常驻内存，长时间远距离探索后内存会持续增长（未测量）。
+- `start_screen.jpg` 含 Terraria 官方标志，公开发布前需要替换。

@@ -39,6 +39,9 @@ htmlcov/
 .nox/
 .hypothesis/
 
+# Smoke-test output
+tools/screenshots/
+
 # OS
 Thumbs.db
 Desktop.ini

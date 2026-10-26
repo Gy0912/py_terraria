@@ -1,146 +1,301 @@
-import pygame
+"""Creatures with three AI styles (slime / walker / flyer) and biome-aware spawning."""
+import math
 import random
+
+import pygame
+
 from settings import *
+from tiles import SOLID, LIQUID
+from physics import move_x, move_y
+
+TS = TILE_SIZE
+
+# drops: (item, min, max, chance)
+CREATURE_TYPES = {
+    "green_slime": dict(ai="slime", name="绿史莱姆", size=(30, 22), hp=14, dmg=6, defense=0, speed=2.0,
+                        jump=7.0, drops=[("gel", 1, 2, 1.0)]),
+    "blue_slime": dict(ai="slime", name="蓝史莱姆", size=(30, 22), hp=25, dmg=7, defense=2, speed=2.2,
+                       jump=7.5, drops=[("gel", 1, 3, 1.0)]),
+    "sand_slime": dict(ai="slime", name="沙史莱姆", size=(30, 22), hp=30, dmg=10, defense=4, speed=2.4,
+                       jump=8.0, drops=[("gel", 1, 3, 1.0), ("sand", 2, 5, 0.5)]),
+    "ice_slime": dict(ai="slime", name="冰史莱姆", size=(30, 22), hp=40, dmg=12, defense=6, speed=2.4,
+                      jump=8.0, drops=[("gel", 1, 3, 1.0), ("ice", 1, 3, 0.4)]),
+    "jungle_slime": dict(ai="slime", name="丛林史莱姆", size=(32, 24), hp=60, dmg=18, defense=6, speed=2.6,
+                         jump=8.5, drops=[("gel", 2, 4, 1.0), ("mud", 2, 4, 0.4)]),
+    "lava_slime": dict(ai="slime", name="岩浆史莱姆", size=(32, 24), hp=70, dmg=26, defense=10, speed=2.8,
+                       jump=9.0, drops=[("gel", 2, 4, 1.0), ("hellstone", 1, 2, 0.5)], light=(4, 0.7)),
+    "zombie": dict(ai="walker", name="僵尸", size=(22, 42), hp=45, dmg=14, defense=6, speed=1.2,
+                   drops=[("gel", 1, 1, 0.2)]),
+    "frozen_zombie": dict(ai="walker", name="冰冻僵尸", size=(22, 42), hp=55, dmg=16, defense=8, speed=1.3,
+                          drops=[("ice", 1, 3, 0.5)]),
+    "skeleton": dict(ai="walker", name="骷髅", size=(22, 42), hp=70, dmg=20, defense=8, speed=1.6,
+                     drops=[("bone", 1, 3, 1.0)]),
+    "crab": dict(ai="walker", name="螃蟹", size=(30, 20), hp=40, dmg=14, defense=8, speed=1.0, drops=[]),
+    "demon_eye": dict(ai="flyer", name="恶魔眼", size=(30, 20), hp=50, dmg=18, defense=2, speed=2.6,
+                      drops=[("lens", 1, 1, 0.5)]),
+    "cave_bat": dict(ai="flyer", name="洞穴蝙蝠", size=(30, 18), hp=20, dmg=12, defense=2, speed=3.0,
+                     drops=[]),
+    "jungle_bat": dict(ai="flyer", name="丛林蝙蝠", size=(30, 18), hp=35, dmg=18, defense=4, speed=3.2,
+                       drops=[]),
+    "ice_bat": dict(ai="flyer", name="冰蝙蝠", size=(30, 18), hp=30, dmg=15, defense=4, speed=3.0,
+                    drops=[("ice", 1, 2, 0.3)]),
+    "hornet": dict(ai="flyer", name="黄蜂", size=(28, 24), hp=45, dmg=22, defense=6, speed=2.4, drops=[]),
+    "hellbat": dict(ai="flyer", name="地狱蝙蝠", size=(30, 18), hp=50, dmg=30, defense=8, speed=3.6,
+                    drops=[("hellstone", 1, 1, 0.3)], light=(3, 0.6)),
+}
+
+
+def spawn_table(layer, biome, night):
+    """Weighted creature list for an environment."""
+    if layer == "hell":
+        return [("lava_slime", 4), ("hellbat", 5)]
+    if layer == "surface":
+        day = {
+            "forest": [("green_slime", 6), ("blue_slime", 3)],
+            "desert": [("sand_slime", 5)],
+            "snow": [("ice_slime", 4), ("blue_slime", 1)],
+            "jungle": [("jungle_slime", 4), ("hornet", 2)],
+            "ocean": [("crab", 5), ("blue_slime", 1)],
+        }[biome]
+        if not night:
+            return day
+        return {
+            "forest": [("zombie", 6), ("demon_eye", 4), ("blue_slime", 1)],
+            "desert": [("zombie", 4), ("demon_eye", 2), ("sand_slime", 2)],
+            "snow": [("frozen_zombie", 5), ("demon_eye", 2)],
+            "jungle": [("zombie", 3), ("jungle_slime", 3), ("hornet", 2), ("demon_eye", 1)],
+            "ocean": [("crab", 4), ("zombie", 2)],
+        }[biome]
+    if layer in ("underground", "cavern"):
+        deep = layer == "cavern"
+        table = {
+            "snow": [("ice_slime", 4), ("ice_bat", 4), ("skeleton", 2 if deep else 0)],
+            "jungle": [("jungle_slime", 4), ("jungle_bat", 4), ("hornet", 2)],
+            "desert": [("sand_slime", 3), ("cave_bat", 3), ("skeleton", 3 if deep else 1)],
+        }.get(biome, [("cave_bat", 4), ("blue_slime", 2), ("skeleton", 4 if deep else 1)])
+        return [e for e in table if e[1] > 0]
+    return []
 
 
 class Creature:
-    """A basic enemy that walks on the surface and damages the player on contact."""
-
-    def __init__(self, x, y, world):
-        self.x = float(x)
-        self.y = float(y)
-        self.width = 28
-        self.height = 32
-        self.color = (200, 40, 40)
+    def __init__(self, kind, x, y, world):
+        self.kind = kind
+        self.t = CREATURE_TYPES[kind]
         self.world = world
-
-        self.vx = random.choice([-1.5, 1.5])
-        self.vy = 0.0
-        self.gravity = 0.5
-        self.max_fall = 10.0
+        self.w, self.h = self.t["size"]
+        self.x, self.y = float(x), float(y)
+        self.vx, self.vy = 0.0, 0.0
+        self.hp = self.max_hp = self.t["hp"]
         self.on_ground = False
-
-        self.hp = 30
-        self.damage = 8
         self.alive = True
+        self.facing = random.choice((-1, 1))
+        self.timer = random.randint(20, 80)
+        self.flash = 0
+        self.anim = 0
+        self.stuck = 0
+        self.wander = random.choice((-1, 1))
 
-        self.direction_timer = 0
-        self.direction_interval = random.randint(60, 180)
+    def rect(self):
+        return pygame.Rect(int(self.x), int(self.y), self.w, self.h)
 
-    def _get_rect(self):
-        return pygame.Rect(self.x, self.y, self.width, self.height)
+    def center(self):
+        return self.x + self.w / 2, self.y + self.h / 2
 
-    def _collides(self, rect):
-        left_tx = int(rect.left) // TILE_SIZE
-        right_tx = int(rect.right - 1) // TILE_SIZE
-        top_ty = int(rect.top) // TILE_SIZE
-        bottom_ty = int(rect.bottom - 1) // TILE_SIZE
-        for tx in range(left_tx, right_tx + 1):
-            for ty in range(top_ty, bottom_ty + 1):
-                if self.world.get_tile(tx, ty) is not None:
-                    return True
-        return False
-
-    def take_damage(self, amount):
-        self.hp -= amount
+    def hit(self, damage, from_x, knockback):
+        dealt = max(1, damage - self.t["defense"] // 2)
+        self.hp -= dealt
+        self.flash = 8
+        d = 1 if self.center()[0] >= from_x else -1
+        resist = 0.4 if self.t["ai"] == "slime" else 0.0
+        self.vx = d * knockback * (1 - resist)
+        self.vy = -3.0 * (1 - resist)
+        self.timer = max(self.timer, 15)
         if self.hp <= 0:
             self.alive = False
+        return dealt
 
-    def update(self):
-        if not self.alive:
-            return
+    # -------------------- AI --------------------
 
-        self.direction_timer += 1
-        if self.direction_timer >= self.direction_interval:
-            self.vx = -self.vx
-            self.direction_timer = 0
-            self.direction_interval = random.randint(60, 180)
-
-        self.vy += self.gravity
-        if self.vy > self.max_fall:
-            self.vy = self.max_fall
-
-        self.x += self.vx
-        rect = self._get_rect()
-        if self._collides(rect):
-            self.x -= self.vx
-            self.vx = -self.vx
-
-        self.y += self.vy
-        rect = self._get_rect()
-        if self._collides(rect):
-            if self.vy > 0:
-                tile_ty = int(rect.bottom - 1) // TILE_SIZE
-                self.y = tile_ty * TILE_SIZE - self.height
-                self.on_ground = True
-            else:
-                tile_ty = int(rect.top) // TILE_SIZE
-                self.y = (tile_ty + 1) * TILE_SIZE
-            self.vy = 0
+    def update(self, player):
+        self.anim += 1
+        if self.flash > 0:
+            self.flash -= 1
+        px, py = player.center()
+        cx, cy = self.center()
+        dx = px - cx
+        near = player.alive and abs(dx) < 30 * TS and abs(py - cy) < 20 * TS
+        ai = self.t["ai"]
+        if ai == "slime":
+            self._slime(dx, near)
+        elif ai == "walker":
+            self._walker(dx, near)
         else:
-            self.on_ground = False
+            self._flyer(px - cx, py - cy, near)
 
-    def draw(self, surface, camera):
-        if not self.alive:
-            return
-        sx, sy = camera.apply(self.x, self.y)
-        pygame.draw.rect(surface, self.color, (sx, sy, self.width, self.height))
-        # HP bar above creature
-        bar_w = self.width
-        ratio = max(0, self.hp / 30)
-        pygame.draw.rect(surface, (80, 0, 0), (sx, sy - 6, bar_w, 4))
-        pygame.draw.rect(surface, RED, (sx, sy - 6, int(bar_w * ratio), 4))
+    def _physics(self, gravity=0.4, max_fall=10.0):
+        in_liquid = LIQUID[self.world.get_tile(int(self.x + self.w / 2) // TS, int(self.y + self.h / 2) // TS)]
+        if in_liquid:
+            gravity *= 0.4
+            max_fall = 3.0
+        self.vy = min(self.vy + gravity, max_fall)
+        self.x, blocked = move_x(self.world, self.x, self.y, self.w, self.h, self.vx)
+        self.y, landed, ceil = move_y(self.world, self.x, self.y, self.w, self.h, self.vy)
+        if landed or ceil:
+            self.vy = 0.0
+        self.on_ground = landed
+        return blocked
+
+    def _slime(self, dx, near):
+        if self.on_ground:
+            self.vx *= 0.75
+            self.timer -= 1
+            if self.timer <= 0:
+                d = (1 if dx > 0 else -1) if near else self.wander
+                if not near and random.random() < 0.3:
+                    self.wander = -self.wander
+                self.facing = d
+                self.vy = -self.t["jump"] * random.uniform(0.75, 1.05)
+                self.vx = d * self.t["speed"]
+                self.timer = random.randint(35, 70) if near else random.randint(80, 150)
+        blocked = self._physics()
+        if blocked:
+            self.vx = -self.vx * 0.5
+
+    def _walker(self, dx, near):
+        d = (1 if dx > 0 else -1) if near else self.wander
+        self.facing = d
+        target = d * self.t["speed"]
+        self.vx += max(-0.15, min(0.15, target - self.vx))
+        old_x = self.x
+        blocked = self._physics()
+        if blocked and self.on_ground:
+            self.vy = -8.0
+        if abs(self.x - old_x) < 0.1:
+            self.stuck += 1
+            if self.stuck > 90:
+                self.wander = -self.wander
+                self.stuck = 0
+        else:
+            self.stuck = 0
+        if not near and random.random() < 0.004:
+            self.wander = -self.wander
+
+    def _flyer(self, dx, dy, near):
+        speed = self.t["speed"]
+        if near:
+            dist = max(1.0, math.hypot(dx, dy))
+            tx, ty = dx / dist * speed, dy / dist * speed
+        else:
+            tx, ty = self.wander * speed * 0.5, math.sin(self.anim * 0.03) * speed * 0.4
+        wobble = math.sin(self.anim * 0.15) * 0.8 if "bat" in self.kind else 0.0
+        self.vx += (tx - self.vx) * 0.04
+        self.vy += (ty + wobble - self.vy) * 0.04
+        self.x, bx = move_x(self.world, self.x, self.y, self.w, self.h, self.vx)
+        if bx:
+            self.vx = -self.vx * 0.7
+            self.wander = -self.wander
+        self.y, landed, ceil = move_y(self.world, self.x, self.y, self.w, self.h, self.vy)
+        if landed or ceil:
+            self.vy = -self.vy * 0.7
+        if abs(self.vx) > 0.2:
+            self.facing = 1 if self.vx > 0 else -1
+
+    # -------------------- draw --------------------
+
+    def draw(self, surf, cam, assets):
+        frames = assets.creatures[self.kind]
+        ai = self.t["ai"]
+        if ai == "slime":
+            idx = 1 if (self.on_ground and self.timer < 12) else 0
+        elif ai == "walker":
+            idx = (self.anim // 8) % len(frames) if abs(self.vx) > 0.2 else 0
+        else:
+            idx = (self.anim // 6) % len(frames)
+        right, left = frames[idx]
+        img = right if self.facing > 0 else left
+        sx, sy = cam.apply(self.x, self.y)
+        pos = (sx + (self.w - img.get_width()) / 2, sy + self.h - img.get_height())
+        if self.flash > 0:
+            img = img.copy()
+            img.fill((150, 150, 150), special_flags=pygame.BLEND_RGB_ADD)
+        surf.blit(img, pos)
+        if self.hp < self.max_hp:
+            bw = max(self.w, 26)
+            bx = sx + (self.w - bw) / 2
+            pygame.draw.rect(surf, (40, 0, 0), (bx, sy - 8, bw, 4))
+            pygame.draw.rect(surf, (230, 40, 40), (bx, sy - 8, bw * self.hp / self.max_hp, 4))
 
 
 class CreatureManager:
-    """Manages spawning and updating creatures near the player."""
-
     def __init__(self, world):
         self.world = world
         self.creatures = []
-        self.spawn_cooldown = 0
-        self.max_creatures = 8
+        self.cooldown = 120
 
-    def update(self, player_x, player_y):
-        self.spawn_cooldown += 1
-        if self.spawn_cooldown >= 300 and len(self.creatures) < self.max_creatures:
-            self._try_spawn(player_x, player_y)
-            self.spawn_cooldown = 0
+    def clear(self):
+        self.creatures = []
 
+    def update(self, player, night):
+        if player.alive:
+            self._spawn_tick(player, night)
         for c in self.creatures:
-            c.update()
+            c.update(player)
+        px, py = player.center()
+        self.creatures = [c for c in self.creatures
+                          if c.alive and abs(c.x - px) < SCREEN_WIDTH * 2.5 and abs(c.y - py) < SCREEN_HEIGHT * 3]
 
-        self.creatures = [c for c in self.creatures if c.alive]
-
-        # Despawn far creatures
-        self.creatures = [
-            c for c in self.creatures
-            if abs(c.x - player_x) < SCREEN_WIDTH * 2
-        ]
-
-    def _try_spawn(self, player_x, player_y):
-        offset = random.choice([-1, 1]) * random.randint(SCREEN_WIDTH // 2, SCREEN_WIDTH)
-        spawn_x = player_x + offset
-        spawn_tx = int(spawn_x) // TILE_SIZE
-        if spawn_tx < 0 or spawn_tx >= ACTUAL_MAP_WIDTH:
+    def _spawn_tick(self, player, night):
+        self.cooldown -= 1
+        if self.cooldown > 0:
             return
-
-        surface_ty = self.world._surface_heights.get(spawn_tx)
-        if surface_ty is None:
+        ptx = int(player.center()[0]) // TS
+        pty = int(player.center()[1]) // TS
+        layer = self.world.layer_at(ptx, pty)
+        if layer == "surface":
+            interval, cap = (150, 9) if night else (260, 5)
+        elif layer == "hell":
+            interval, cap = 150, 10
+        else:
+            interval, cap = 180, 8
+        self.cooldown = interval + random.randint(-30, 30)
+        if len(self.creatures) >= cap:
             return
-        spawn_y = (surface_ty - 3) * TILE_SIZE
-        self.creatures.append(Creature(spawn_x, spawn_y, self.world))
+        self._try_spawn(ptx, pty, night)
 
-    def check_player_collision(self, player):
-        prect = pygame.Rect(player.x, player.y, player.width, player.height)
-        for c in self.creatures:
-            if not c.alive:
+    def _try_spawn(self, ptx, pty, night):
+        world = self.world
+        half = SCREEN_WIDTH // TS // 2
+        for _ in range(8):
+            tx = ptx + random.choice((-1, 1)) * random.randint(half + 2, half + 14)
+            if not (2 <= tx < WORLD_W - 2):
                 continue
-            crect = c._get_rect()
-            if prect.colliderect(crect):
-                return c.damage
-        return 0
+            for ty in sorted(range(pty - 14, pty + 15), key=lambda y: abs(y - pty) + random.random() * 6):
+                if not (2 <= ty < WORLD_H - 3):
+                    continue
+                layer = world.layer_at(tx, ty)
+                table = spawn_table(layer, world.biome_at(tx, ty), night)
+                if not table:
+                    continue
+                kind = random.choices([k for k, _ in table], [w for _, w in table])[0]
+                ai = CREATURE_TYPES[kind]["ai"]
+                if not self._fits(tx, ty, ai):
+                    continue
+                w, h = CREATURE_TYPES[kind]["size"]
+                x = tx * TS + (TS - w) / 2
+                y = (ty + 1) * TS - h if ai != "flyer" else ty * TS
+                self.creatures.append(Creature(kind, x, y, world))
+                return
 
-    def draw(self, surface, camera):
+    def _fits(self, tx, ty, ai):
+        g = self.world.get_tile
+        open_air = all(not SOLID[g(tx + dx, ty - dy)] and not LIQUID[g(tx + dx, ty - dy)]
+                       for dx in (0, 1) for dy in (0, 1))
+        if not open_air:
+            return False
+        if ai == "flyer":
+            return True
+        return SOLID[g(tx, ty + 1)] and SOLID[g(tx + 1, ty + 1)]
+
+    def draw(self, surf, cam, assets):
         for c in self.creatures:
-            c.draw(surface, camera)
+            c.draw(surf, cam, assets)
