@@ -1,6 +1,7 @@
-"""Procedural pixel-art textures for tiles, items, the player and creatures.
+"""Procedural pixel-art textures for tiles, objects, walls, items, characters and bosses.
 
-Everything is authored on a small pixel grid and scaled up 2x for a crisp look.
+1x1 tiles are authored at native 16x16. Multi-tile objects, icons and characters are
+authored at half resolution and scaled up 2x for a chunkier pixel look.
 A PNG in images/textures/tiles/<name>.png or images/textures/items/<name>.png
 replaces the generated texture of the same name.
 """
@@ -11,7 +12,7 @@ import zlib
 import pygame
 
 from settings import TILE_SIZE, TEXTURE_OVERRIDE_DIR
-from tiles import TILES, T
+from tiles import TILES, T, WALLS, W
 from items import ITEMS
 
 PX = 2
@@ -259,19 +260,174 @@ def _t_leaves(rng, base):
 
 
 def ragged_edges(tex, mask, seed):
-    """Copy of a 32px canopy tile with leafy holes on exposed sides (mask bits: up, down, left, right)."""
+    """Copy of a canopy tile with leafy holes on exposed sides (mask bits: up, down, left, right)."""
     rng = random.Random(seed)
     out = tex.copy()
     size = out.get_width()
     clear = (0, 0, 0, 0)
-    for y in range(0, size, PX):
-        for x in range(0, size, PX):
-            px, py = x // PX, y // PX
-            depth = min(px if mask & 4 else 99, 15 - px if mask & 8 else 99,
-                        py if mask & 1 else 99, 15 - py if mask & 2 else 99)
+    for y in range(size):
+        for x in range(size):
+            depth = min(x if mask & 4 else 99, size - 1 - x if mask & 8 else 99,
+                        y if mask & 1 else 99, size - 1 - y if mask & 2 else 99)
             if depth < 3 and rng.random() < (0.7, 0.4, 0.15)[depth]:
-                out.fill(clear, (x, y, PX, PX))
+                out.set_at((x, y), clear)
     return out
+
+
+def _t_bricks(rng, base, mortar_f=0.62, rows=4):
+    s = _canvas()
+    mortar = shade(base, mortar_f)
+    h = 16 // rows
+    for row in range(rows):
+        off = (row % 2) * 4
+        for y in range(row * h, row * h + h):
+            for x in range(16):
+                c = shade(base, rng.choice((0.93, 1.0, 1.05)))
+                if y == row * h + h - 1 or (x + off) % 8 == 7:
+                    c = mortar
+                elif y == row * h:
+                    c = shade(base, 1.12)
+                s.set_at((x, y), c)
+    return s
+
+
+def _t_obsidian(rng):
+    base = (52, 38, 76)
+    s = _canvas()
+    _noise_fill(s, rng, base, (0.8, 0.9, 1.0, 1.1))
+    for _ in range(3):
+        x, y = rng.randrange(14), rng.randrange(14)
+        s.set_at((x, y), (150, 120, 200))
+        s.set_at((x + 1, y + 1), (110, 85, 160))
+    return s
+
+
+def _t_cloud(rng):
+    base = (238, 243, 255)
+    s = _canvas()
+    _noise_fill(s, rng, base, (0.94, 0.97, 1.0, 1.02))
+    _spots(s, rng, (210, 220, 240), 6, 2)
+    return s
+
+
+# ----------------------------------------------------------------------
+# multi-tile objects (authored at half resolution, scaled 2x)
+# ----------------------------------------------------------------------
+
+def _o_workbench():
+    wood = (165, 110, 60)
+    s = _canvas(16, 8)
+    pygame.draw.rect(s, wood, (0, 0, 16, 3))
+    pygame.draw.line(s, shade(wood, 1.2), (0, 0), (15, 0))
+    pygame.draw.line(s, shade(wood, 0.6), (0, 3), (15, 3))
+    for x in (1, 13):
+        pygame.draw.rect(s, shade(wood, 0.85), (x, 4, 2, 4))
+    pygame.draw.line(s, shade(wood, 0.75), (3, 6), (12, 6))
+    return s
+
+
+def _o_furnace():
+    stone = (115, 105, 105)
+    s = _canvas(24, 16)
+    rng = _rng("furnace_obj")
+    for y in range(3, 16):
+        for x in range(1, 23):
+            c = shade(stone, rng.choice((0.92, 1.0, 1.06)))
+            if (y - 3) % 4 == 3 or (x + ((y - 3) // 4) * 3) % 6 == 0:
+                c = shade(stone, 0.7)
+            s.set_at((x, y), c)
+    pygame.draw.rect(s, shade(stone, 0.8), (16, 0, 4, 3))
+    pygame.draw.rect(s, (30, 20, 20), (8, 8, 8, 6))
+    for x in range(9, 15):
+        s.set_at((x, 12 - (x % 2)), (255, 150 + (x * 13) % 80, 40))
+        s.set_at((x, 13), (255, 220, 90))
+    return s
+
+
+def _o_anvil():
+    base = (85, 85, 95)
+    s = _canvas(16, 8)
+    pygame.draw.polygon(s, base, [(0, 0), (15, 0), (15, 3), (4, 3), (0, 1)])
+    pygame.draw.rect(s, base, (5, 3, 6, 2))
+    pygame.draw.rect(s, base, (3, 5, 10, 3))
+    pygame.draw.line(s, (150, 150, 165), (1, 0), (15, 0))
+    pygame.draw.line(s, (55, 55, 62), (3, 7), (12, 7))
+    return s
+
+
+def _o_chest(body=(160, 110, 50), trim=(200, 170, 60)):
+    s = _canvas(16, 16)
+    pygame.draw.rect(s, body, (1, 4, 14, 12))
+    pygame.draw.rect(s, shade(body, 1.15), (1, 2, 14, 5))
+    pygame.draw.line(s, shade(body, 0.6), (1, 7), (14, 7))
+    for x in (1, 14):
+        pygame.draw.line(s, trim, (x, 2), (x, 15))
+    pygame.draw.rect(s, trim, (6, 6, 4, 4))
+    s.set_at((7, 8), (40, 30, 20))
+    _outline(s, shade(body, 0.45))
+    return s
+
+
+def _o_bed():
+    s = _canvas(32, 16)
+    wood = (150, 95, 55)
+    pygame.draw.rect(s, wood, (0, 2, 3, 14))
+    pygame.draw.rect(s, wood, (29, 6, 3, 10))
+    pygame.draw.rect(s, (230, 230, 235), (3, 7, 7, 4))
+    pygame.draw.rect(s, (180, 50, 55), (9, 7, 20, 5))
+    pygame.draw.line(s, (220, 90, 95), (9, 7), (28, 7))
+    pygame.draw.rect(s, shade(wood, 0.8), (3, 11, 26, 2))
+    pygame.draw.rect(s, wood, (3, 13, 2, 3))
+    pygame.draw.rect(s, wood, (26, 13, 2, 3))
+    return s
+
+
+def _o_door():
+    wood = (140, 95, 50)
+    s = _canvas(8, 24)
+    pygame.draw.rect(s, wood, (1, 0, 6, 24))
+    for y in (0, 23):
+        pygame.draw.line(s, shade(wood, 0.6), (1, y), (6, y))
+    pygame.draw.line(s, shade(wood, 0.7), (4, 1), (4, 22))
+    pygame.draw.line(s, shade(wood, 1.2), (2, 1), (2, 22))
+    s.set_at((5, 12), (220, 200, 90))
+    return s
+
+
+def _o_pylon():
+    s = _canvas(16, 24)
+    pygame.draw.rect(s, (90, 90, 110), (2, 19, 12, 5))
+    pygame.draw.polygon(s, (90, 220, 230), [(8, 1), (13, 9), (8, 17), (3, 9)])
+    pygame.draw.polygon(s, (190, 250, 255), [(8, 3), (10, 9), (8, 13), (6, 9)])
+    pygame.draw.polygon(s, (40, 120, 140), [(8, 1), (13, 9), (8, 17), (3, 9)], 1)
+    return s
+
+
+def _o_shipping_bin():
+    wood = (150, 110, 70)
+    s = _canvas(16, 16)
+    pygame.draw.rect(s, wood, (0, 5, 16, 11))
+    for x in range(0, 16, 4):
+        pygame.draw.line(s, shade(wood, 0.7), (x, 5), (x, 15))
+    pygame.draw.rect(s, shade(wood, 1.2), (0, 2, 16, 3))
+    pygame.draw.polygon(s, (240, 210, 70), [(6, 9), (10, 9), (8, 12)])
+    _outline(s, shade(wood, 0.45))
+    return s
+
+
+def _o_auto_smelter():
+    s = _o_furnace()
+    pygame.draw.rect(s, (190, 190, 200), (2, 4, 4, 3))
+    pygame.draw.rect(s, (190, 190, 200), (18, 4, 4, 3))
+    pygame.draw.line(s, (90, 200, 250), (2, 15), (21, 15))
+    return s
+
+
+_OBJ_GEN = {
+    "workbench": _o_workbench, "furnace": _o_furnace, "anvil": _o_anvil, "chest": _o_chest,
+    "bed": _o_bed, "door": _o_door, "pylon": _o_pylon, "shipping_bin": _o_shipping_bin,
+    "auto_smelter": _o_auto_smelter,
+}
 
 
 def _t_cactus(rng):
@@ -298,52 +454,6 @@ def _t_torch(rng):
     pygame.draw.ellipse(s, (255, 210, 80), (6, 3, 4, 5))
     s.set_at((7, 5), (255, 255, 215))
     s.set_at((8, 5), (255, 255, 215))
-    return s
-
-
-def _t_workbench(rng):
-    wood = (165, 110, 60)
-    s = _canvas()
-    for x in range(16):
-        for y in range(6, 9):
-            s.set_at((x, y), shade(wood, 1.1 if y == 6 else 1.0))
-        s.set_at((x, 9), shade(wood, 0.6))
-    for y in range(10, 16):
-        for x in (1, 2, 13, 14):
-            s.set_at((x, y), shade(wood, 0.85 if x in (2, 14) else 1.0))
-    for x in range(3, 13):
-        s.set_at((x, 12), shade(wood, 0.8))
-    return s
-
-
-def _t_furnace(rng):
-    stone = (115, 105, 105)
-    s = _canvas()
-    for y in range(3, 16):
-        for x in range(1, 15):
-            c = shade(stone, rng.choice((0.92, 1.0, 1.06)))
-            if (y - 3) % 4 == 3 or (x + ((y - 3) // 4) * 3) % 6 == 0:
-                c = shade(stone, 0.7)
-            s.set_at((x, y), c)
-    for x in range(10, 13):
-        for y in range(0, 3):
-            s.set_at((x, y), shade(stone, 0.8))
-    pygame.draw.rect(s, (30, 20, 20), (5, 9, 6, 5))
-    for x, y in ((6, 12), (7, 11), (8, 12), (9, 11), (7, 12), (8, 11)):
-        s.set_at((x, y), (255, rng.randint(120, 200), 40))
-    return s
-
-
-def _t_anvil(rng):
-    base = (85, 85, 95)
-    s = _canvas()
-    pygame.draw.polygon(s, base, [(1, 6), (14, 6), (14, 9), (4, 9), (1, 7)])
-    pygame.draw.rect(s, base, (5, 9, 6, 3))
-    pygame.draw.rect(s, base, (3, 12, 10, 4))
-    for x in range(2, 15):
-        s.set_at((x, 6), (145, 145, 160))
-    for x in range(3, 13):
-        s.set_at((x, 15), (55, 55, 62))
     return s
 
 
@@ -378,18 +488,6 @@ def _t_pot(rng):
     return s
 
 
-def _t_liquid(rng, base, alpha, hilite):
-    s = _canvas()
-    for y in range(16):
-        for x in range(16):
-            s.set_at((x, y), shade(base, rng.choice((0.92, 1.0, 1.06))) + (alpha,))
-    for _ in range(3):
-        x, y = rng.randrange(14), rng.randrange(16)
-        s.set_at((x, y), hilite + (alpha,))
-        s.set_at((x + 1, y), hilite + (alpha,))
-    return s
-
-
 _TILE_GEN = {
     "dirt": _t_dirt,
     "grass": lambda r: _t_grass_on(r, (139, 96, 64), (76, 160, 60)),
@@ -412,14 +510,16 @@ _TILE_GEN = {
     "boreal_leaves": lambda r: _t_leaves(r, (55, 110, 90)),
     "cactus": _t_cactus,
     "torch": _t_torch,
-    "workbench": _t_workbench,
-    "furnace": _t_furnace,
-    "anvil": _t_anvil,
     "mushroom": _t_mushroom,
     "life_crystal": _t_crystal,
     "pot": _t_pot,
-    "water": lambda r: _t_liquid(r, (40, 100, 210), 150, (110, 170, 245)),
-    "lava": lambda r: _t_liquid(r, (235, 95, 20), 235, (255, 200, 70)),
+    "obsidian": _t_obsidian,
+    "cloud": _t_cloud,
+    "stone_brick": lambda r: _t_bricks(r, (140, 140, 150)),
+    "sandstone_brick": lambda r: _t_bricks(r, (210, 170, 110)),
+    "snow_brick": lambda r: _t_bricks(r, (215, 230, 245), 0.8),
+    "mud_brick": lambda r: _t_bricks(r, (120, 85, 80)),
+    "obsidian_brick": lambda r: _t_bricks(r, (70, 50, 95), 0.55),
 }
 
 
@@ -559,10 +659,197 @@ def _i_potion(c):
     return s
 
 
+def _i_hammer(c):
+    s = _canvas()
+    _thick(s, shade(_WOOD, 0.5), [(1, 15), (10, 6)], 3)
+    _thick(s, _WOOD, [(1, 15), (10, 6)], 1)
+    head = [(7, 2), (12, 7), (15, 4), (10, -1)]
+    pygame.draw.polygon(s, c, head)
+    pygame.draw.polygon(s, shade(c, 0.45), head, 1)
+    return s
+
+
+def _i_helmet(c):
+    s = _canvas()
+    pygame.draw.ellipse(s, c, (2, 2, 12, 12))
+    pygame.draw.rect(s, (0, 0, 0, 0), (2, 9, 12, 7))
+    pygame.draw.rect(s, c, (2, 8, 3, 6))
+    pygame.draw.rect(s, c, (11, 8, 3, 6))
+    pygame.draw.line(s, shade(c, 1.4), (5, 4), (9, 3))
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_chestplate(c):
+    s = _canvas()
+    pygame.draw.polygon(s, c, [(3, 2), (6, 3), (10, 3), (13, 2), (14, 7), (12, 7), (12, 14), (4, 14),
+                               (4, 7), (2, 7)])
+    pygame.draw.line(s, shade(c, 0.7), (8, 4), (8, 13))
+    pygame.draw.line(s, shade(c, 1.35), (5, 5), (5, 12))
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_greaves(c):
+    s = _canvas()
+    pygame.draw.rect(s, c, (3, 2, 10, 4))
+    pygame.draw.rect(s, c, (3, 6, 4, 8))
+    pygame.draw.rect(s, c, (9, 6, 4, 8))
+    pygame.draw.rect(s, shade(c, 0.7), (2, 13, 5, 2))
+    pygame.draw.rect(s, shade(c, 0.7), (9, 13, 5, 2))
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_boots(c):
+    s = _canvas()
+    pygame.draw.rect(s, c, (4, 2, 5, 9))
+    pygame.draw.rect(s, c, (4, 9, 10, 4))
+    pygame.draw.line(s, shade(c, 1.4), (5, 3), (5, 9))
+    pygame.draw.line(s, (240, 240, 255), (1, 4), (3, 6))
+    pygame.draw.line(s, (240, 240, 255), (1, 8), (3, 9))
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_bottle(c):
+    s = _canvas()
+    pygame.draw.rect(s, (200, 222, 232), (6, 1, 4, 4))
+    pygame.draw.ellipse(s, (200, 222, 232), (3, 4, 10, 11))
+    pygame.draw.ellipse(s, c, (5, 7, 6, 5))
+    pygame.draw.circle(s, (255, 255, 255), (7, 9), 1)
+    _outline(s, (70, 80, 100))
+    return s
+
+
+def _i_mask(c):
+    s = _canvas()
+    pygame.draw.ellipse(s, c, (1, 3, 14, 10))
+    pygame.draw.ellipse(s, (170, 220, 240), (3, 5, 10, 6))
+    pygame.draw.line(s, (240, 250, 255), (5, 6), (8, 6))
+    pygame.draw.rect(s, shade(c, 0.7), (12, 1, 2, 5))
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_charm(c):
+    s = _canvas()
+    pygame.draw.line(s, (200, 200, 210), (4, 1), (8, 5))
+    pygame.draw.line(s, (200, 200, 210), (12, 1), (8, 5))
+    pygame.draw.circle(s, c, (8, 10), 5)
+    pygame.draw.circle(s, shade(c, 1.6), (7, 9), 2)
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_band(c):
+    s = _canvas()
+    pygame.draw.ellipse(s, c, (2, 4, 12, 9), 3)
+    pygame.draw.circle(s, (255, 255, 255), (8, 5), 2)
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_ring(c):
+    s = _canvas()
+    pygame.draw.circle(s, (220, 190, 70), (8, 10), 5, 2)
+    pygame.draw.polygon(s, c, [(8, 1), (11, 4), (8, 7), (5, 4)])
+    _outline(s, (90, 60, 30))
+    return s
+
+
+def _i_horseshoe(c):
+    s = _canvas()
+    pygame.draw.arc(s, c, (2, 2, 12, 14), 0, 3.14159, 3)
+    pygame.draw.rect(s, c, (2, 8, 3, 6))
+    pygame.draw.rect(s, c, (11, 8, 3, 6))
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_shield(c):
+    s = _canvas()
+    pygame.draw.polygon(s, c, [(2, 2), (14, 2), (14, 8), (8, 15), (2, 8)])
+    pygame.draw.circle(s, (240, 235, 230), (8, 7), 3)
+    pygame.draw.circle(s, (180, 30, 30), (8, 7), 1)
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_star(c):
+    s = _canvas()
+    pts = [(8, 1), (10, 6), (15, 6), (11, 9), (13, 15), (8, 11), (3, 15), (5, 9), (1, 6), (6, 6)]
+    pygame.draw.polygon(s, c, pts)
+    pygame.draw.polygon(s, shade(c, 1.5), [(8, 4), (9, 7), (7, 7)])
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_mirror(c):
+    s = _canvas()
+    pygame.draw.rect(s, _WOOD, (7, 11, 2, 5))
+    pygame.draw.ellipse(s, (200, 170, 70), (3, 1, 10, 12))
+    pygame.draw.ellipse(s, c, (5, 3, 6, 8))
+    pygame.draw.line(s, (255, 255, 255), (6, 4), (7, 6))
+    return s
+
+
+def _i_eye_summon(c):
+    s = _canvas()
+    pygame.draw.circle(s, (238, 228, 225), (8, 8), 6)
+    pygame.draw.circle(s, c, (9, 8), 3)
+    pygame.draw.circle(s, (10, 10, 10), (9, 8), 1)
+    for p in ((4, 5), (4, 9), (6, 12)):
+        s.set_at(p, (200, 40, 40))
+    _outline(s, (110, 30, 30))
+    return s
+
+
+def _i_crown(c):
+    s = _canvas()
+    pygame.draw.polygon(s, (250, 210, 70), [(2, 12), (2, 5), (5, 8), (8, 3), (11, 8), (14, 5), (14, 12)])
+    pygame.draw.circle(s, c, (8, 10), 2)
+    _outline(s, (120, 90, 20))
+    return s
+
+
+def _i_bag(c):
+    s = _canvas()
+    pygame.draw.ellipse(s, c, (2, 5, 12, 11))
+    pygame.draw.rect(s, c, (6, 2, 4, 4))
+    pygame.draw.line(s, (250, 210, 70), (5, 5), (11, 5))
+    pygame.draw.circle(s, (250, 210, 70), (8, 11), 2)
+    _outline(s, shade(c, 0.4))
+    return s
+
+
+def _i_bucket(c):
+    s = _canvas()
+    pygame.draw.polygon(s, (170, 170, 180), [(2, 5), (14, 5), (12, 15), (4, 15)])
+    pygame.draw.arc(s, (120, 120, 130), (3, 0, 10, 10), 0, 3.14159, 1)
+    if c != (170, 170, 180):
+        pygame.draw.polygon(s, c, [(3, 6), (13, 6), (12, 9), (4, 9)])
+    _outline(s, (70, 70, 80))
+    return s
+
+
+def _i_coin(c):
+    s = _canvas()
+    pygame.draw.circle(s, c, (8, 8), 6)
+    pygame.draw.circle(s, shade(c, 0.75), (8, 8), 4, 1)
+    pygame.draw.line(s, shade(c, 1.3), (6, 5), (7, 4))
+    _outline(s, shade(c, 0.45))
+    return s
+
+
 _ICON_GEN = {
     "pickaxe": _i_pickaxe, "axe": _i_axe, "sword": _i_sword, "bow": _i_bow, "arrow": _i_arrow,
     "staff": _i_staff, "bar": _i_bar, "gel": _i_gel, "lens": _i_lens, "bone": _i_bone,
-    "potion": _i_potion,
+    "potion": _i_potion, "hammer": _i_hammer, "helmet": _i_helmet, "chestplate": _i_chestplate,
+    "greaves": _i_greaves, "boots": _i_boots, "bottle": _i_bottle, "mask": _i_mask, "charm": _i_charm,
+    "band": _i_band, "ring": _i_ring, "horseshoe": _i_horseshoe, "shield": _i_shield, "star": _i_star,
+    "mirror": _i_mirror, "eye_summon": _i_eye_summon, "crown": _i_crown, "bag": _i_bag,
+    "bucket": _i_bucket, "coin": _i_coin,
 }
 _ICON_FROM_TILE = {"mushroom": "mushroom", "crystal": "life_crystal", "cactus": "cactus"}
 
@@ -571,8 +858,17 @@ _ICON_FROM_TILE = {"mushroom": "mushroom", "crystal": "life_crystal", "cactus": 
 # characters
 # ----------------------------------------------------------------------
 
-def _humanoid(skin, hair, shirt, pants, shoes, frame, zombie=False, skeleton=False):
-    """12x22 humanoid facing right. frame: 0-3 walk cycle, 'idle', 'jump'."""
+def _humanoid(skin, hair, shirt, pants, shoes, frame, zombie=False, skeleton=False,
+              helmet=None, armor=None, greaves=None, hat=None, beard=None, robe=None):
+    """12x22 humanoid facing right. frame: 0-3 walk cycle, 'idle', 'jump'.
+
+    helmet / armor / greaves are armor colours drawn over the base look;
+    hat / beard / robe are NPC costume colours.
+    """
+    if armor:
+        shirt = armor
+    if greaves:
+        pants = greaves
     s = _canvas(12, 22)
     eye = (25, 25, 40)
     if not skeleton:
@@ -621,6 +917,69 @@ def _humanoid(skin, hair, shirt, pants, shoes, frame, zombie=False, skeleton=Fal
         else:
             pygame.draw.rect(s, shade(shirt, 0.9), (6 + swing, 10, 2, 4))
             pygame.draw.rect(s, skin, (6 + swing, 14, 2, 1))
+    if robe:
+        pygame.draw.rect(s, robe, (3, 9, 6, 11))
+        pygame.draw.line(s, shade(robe, 0.7), (3, 9), (3, 19))
+        pygame.draw.line(s, shade(robe, 1.3), (6, 10), (6, 18))
+    if armor:
+        pygame.draw.rect(s, shade(armor, 1.25), (3, 9, 6, 1))
+        pygame.draw.rect(s, shade(armor, 1.15), (7, 9, 2, 2))
+    if greaves:
+        pygame.draw.line(s, shade(greaves, 1.3), (4, 17), (7, 17))
+    if beard:
+        pygame.draw.rect(s, beard, (4, 6, 5, 3))
+        s.set_at((6, 4), (245, 245, 245))
+        s.set_at((7, 4), eye)
+    if helmet:
+        pygame.draw.rect(s, helmet, (2, 0, 8, 3))
+        pygame.draw.rect(s, helmet, (2, 3, 2, 3))
+        pygame.draw.line(s, shade(helmet, 1.4), (4, 0), (8, 0))
+        pygame.draw.line(s, shade(helmet, 0.6), (2, 3), (9, 3))
+    if hat:
+        pygame.draw.rect(s, hat, (3, 0, 6, 2))
+        pygame.draw.rect(s, shade(hat, 0.75), (1, 2, 10, 1))
+        s.set_at((5, 1), (250, 220, 90))
+    return s
+
+
+def _eye_boss(phase, frame):
+    s = _canvas(32, 24)
+    pygame.draw.circle(s, (238, 228, 225), (18, 12), 11)
+    rng = _rng("eye_boss")
+    for _ in range(14):
+        x, y = rng.randint(9, 15), rng.randint(4, 20)
+        s.set_at((x, y), (200, 50, 55))
+        s.set_at((x - 1, y + rng.choice((-1, 1))), (170, 40, 45))
+    if phase == 1:
+        pygame.draw.circle(s, (60, 110, 200), (25, 12), 5)
+        pygame.draw.circle(s, (12, 12, 18), (26, 12), 2)
+        s.set_at((24, 10), (255, 255, 255))
+    else:
+        pygame.draw.circle(s, (90, 10, 15), (25, 12), 6)
+        for y in range(7, 18, 2):
+            pygame.draw.polygon(s, (240, 235, 220), [(29, y), (25, y + 1), (29, y + 2)])
+    for i in range(4):
+        y = 7 + i * 3
+        wave = 1 if (i + frame) % 2 else -1
+        pygame.draw.line(s, (160, 40, 50), (7, y), (1, y + wave), 2)
+    _outline(s, (110, 30, 35))
+    return s
+
+
+def _king_slime(squish):
+    s = _canvas(48, 32)
+    color = (70, 130, 235)
+    rect = (0, 14, 48, 18) if squish else (2, 8, 44, 24)
+    pygame.draw.ellipse(s, color + (210,), rect)
+    pygame.draw.ellipse(s, shade(color, 0.55) + (240,), rect, 1)
+    pygame.draw.ellipse(s, (255, 255, 255, 130), (rect[0] + 8, rect[1] + 4, 10, 4))
+    ey = rect[1] + rect[3] // 2
+    for x in (18, 30):
+        pygame.draw.rect(s, (20, 20, 40), (x, ey - 1, 2, 3))
+    cy = rect[1] - 1
+    pygame.draw.polygon(s, (250, 210, 70), [(16, cy), (16, cy - 7), (20, cy - 3), (24, cy - 9),
+                                            (28, cy - 3), (32, cy - 7), (32, cy)])
+    pygame.draw.circle(s, (220, 40, 60), (24, cy - 3), 2)
     return s
 
 
@@ -706,48 +1065,50 @@ def _crab(color, step):
 
 class Assets:
     def __init__(self):
-        self.tile_tex = {}       # tile id -> [variants]
-        self.water_top = None
+        self.tile_tex = {}       # tile id -> [16px variants]
+        self.obj_tex = {}        # object tile id -> full-size surface (w*16 x h*16)
+        self.wall_tex = {}       # wall id -> 16px surface
+        self.leaf_tex = {}
         self.cracks = []
         self.icons = {}          # item name -> 32x32
         self.icons_small = {}    # item name -> 20x20 (drops)
-        self.player = {}         # frame -> (right, left)
+        self.player = {}         # frame -> (right, left) for the unarmoured look
+        self._player_looks = {}  # armour key -> {frame: (right, left)}
         self.creatures = {}      # kind -> [(right, left), ...]
+        self.npcs = {}           # npc kind -> {frame: (right, left)}
+        self.bosses = {}
 
-    def _override(self, kind, name):
+    def _override(self, kind, name, size=(TILE_SIZE, TILE_SIZE)):
         path = os.path.join(TEXTURE_OVERRIDE_DIR, kind, name + ".png")
         if os.path.exists(path):
             img = pygame.image.load(path).convert_alpha()
-            return pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
+            return pygame.transform.scale(img, size)
         return None
 
     def load(self):
         for td in TILES:
-            gen = _TILE_GEN.get(td.name)
-            if gen is None:
+            size = (td.size[0] * TILE_SIZE, td.size[1] * TILE_SIZE)
+            ov = self._override("tiles", td.name, size)
+            if td.size != (1, 1):
+                if ov is None:
+                    gen = _OBJ_GEN.get(td.name)
+                    ov = _up(gen()) if gen else _up(_TILE_GEN[td.name](_rng(td.name)))
+                self.obj_tex[td.id] = ov
                 continue
-            ov = self._override("tiles", td.name)
+            gen = _TILE_GEN.get(td.name)
             if ov is not None:
                 self.tile_tex[td.id] = [ov]
-                continue
-            self.tile_tex[td.id] = [_up(gen(_rng(td.name, v))) for v in range(VARIANTS)]
-        top = _t_liquid(_rng("water_top"), (40, 100, 210), 150, (110, 170, 245))
-        for x in range(16):
-            top.set_at((x, 0), (170, 210, 255, 210))
-            top.set_at((x, 1), (120, 175, 245, 180))
-        self.water_top = _up(top)
-        self.cracks = [_up(_crack_stage(i)) for i in range(4)]
-        self.leaf_tex = {}
+            elif gen is not None:
+                self.tile_tex[td.id] = [gen(_rng(td.name, v)) for v in range(VARIANTS)]
+        self.cracks = [_crack_stage(i) for i in range(4)]
         for name in ("leaves", "jungle_leaves", "boreal_leaves"):
             tid = T[name]
             for mask in range(16):
                 self.leaf_tex[(tid, mask)] = ragged_edges(self.tile_tex[tid][0], mask, tid * 16 + mask)
-        self.walls = {}
-        for biome, tile_name in (("forest", "dirt"), ("desert", "sand"), ("snow", "snow"),
-                                 ("jungle", "mud"), ("ocean", "sand")):
-            wall = self.tile_tex[T[tile_name]][0].copy()
-            wall.fill((88, 84, 92), special_flags=pygame.BLEND_RGB_MULT)
-            self.walls[biome] = wall
+        for wd in WALLS[1:]:
+            wall = self.tile_tex[T[wd.tile]][0].copy()
+            wall.fill((92, 88, 96) if wd.natural else (110, 104, 112), special_flags=pygame.BLEND_RGB_MULT)
+            self.wall_tex[wd.id] = wall
         self._load_icons()
         self._load_characters()
 
@@ -756,16 +1117,26 @@ class Assets:
             ov = self._override("items", it.name)
             if ov is not None:
                 icon = ov
+            elif it.kind == "wall":
+                icon = pygame.Surface((32, 32), pygame.SRCALPHA)
+                icon.blit(pygame.transform.scale(self.wall_tex[W[it.wall]], (22, 22)), (5, 5))
+                pygame.draw.rect(icon, (230, 230, 230, 160), (5, 5, 22, 22), 1)
             elif it.icon == "block" or it.icon in _ICON_FROM_TILE:
                 tile_name = it.place if it.icon == "block" else _ICON_FROM_TILE[it.icon]
-                tex = self.tile_tex[T[tile_name]][0]
-                if TILES[T[tile_name]].solid:
+                tid = T[tile_name]
+                if tid in self.obj_tex:
+                    tex = self.obj_tex[tid]
+                    scale = 28 / max(tex.get_size())
+                    small = pygame.transform.scale(tex, (max(1, int(tex.get_width() * scale)),
+                                                         max(1, int(tex.get_height() * scale))))
                     icon = pygame.Surface((32, 32), pygame.SRCALPHA)
-                    small = pygame.transform.scale(tex, (22, 22))
-                    icon.blit(small, (5, 5))
+                    icon.blit(small, ((32 - small.get_width()) // 2, (32 - small.get_height()) // 2))
+                elif TILES[tid].solid:
+                    icon = pygame.Surface((32, 32), pygame.SRCALPHA)
+                    icon.blit(pygame.transform.scale(self.tile_tex[tid][0], (22, 22)), (5, 5))
                     pygame.draw.rect(icon, (0, 0, 0, 120), (5, 5, 22, 22), 1)
                 else:
-                    icon = tex.copy()
+                    icon = _up(self.tile_tex[tid][0])
             else:
                 icon = _up(_ICON_GEN[it.icon](it.color))
             self.icons[it.name] = icon
@@ -799,6 +1170,41 @@ class Assets:
         self.creatures["demon_eye"] = [_flip_pair(_up(_eye(t))) for t in (0, 1)]
         self.creatures["hornet"] = [_flip_pair(_up(_hornet((230, 200, 40), up))) for up in (True, False)]
         self.creatures["crab"] = [_flip_pair(_up(_crab((220, 70, 60), st))) for st in (0, 1)]
+        self.creatures["servant_eye"] = [_flip_pair(pygame.transform.scale(_up(_eye(t)), (22, 15)))
+                                         for t in (0, 1)]
+
+        npc_looks = {
+            "guide": dict(skin=(240, 200, 160), hair=(90, 60, 30), shirt=(70, 140, 70), pants=(90, 70, 50)),
+            "merchant": dict(skin=(235, 195, 155), hair=(200, 200, 205), shirt=(150, 110, 60),
+                             pants=(70, 60, 50), beard=(225, 225, 230)),
+            "nurse": dict(skin=(245, 210, 175), hair=(230, 120, 140), shirt=(250, 250, 250),
+                          pants=(250, 250, 250), helmet=(250, 250, 250)),
+            "traveler": dict(skin=(230, 195, 160), hair=(180, 180, 190), shirt=(90, 60, 150),
+                             pants=(80, 50, 130), hat=(90, 60, 150), robe=(90, 60, 150), beard=(210, 210, 220)),
+            "blacksmith": dict(skin=(215, 170, 130), hair=(50, 40, 35), shirt=(130, 90, 60),
+                               pants=(60, 55, 55), beard=(60, 45, 35)),
+        }
+        for kind, look in npc_looks.items():
+            self.npcs[kind] = {f: _flip_pair(_up(_humanoid(shoes=(40, 35, 30), frame=f, **look)))
+                               for f in ("idle", 0, 1, 2, 3)}
+        self.bosses["eye"] = {phase: [_flip_pair(_up(_eye_boss(phase, f))) for f in (0, 1)] for phase in (1, 2)}
+        self.bosses["king_slime"] = [_flip_pair(_up(_king_slime(sq))) for sq in (False, True)]
+
+    def player_look(self, head=None, body=None, legs=None):
+        """Player frames with armour colours applied (cached per armour combination)."""
+        key = (head, body, legs)
+        if key not in self._player_looks:
+            look = dict(skin=(240, 200, 160), hair=(110, 70, 40), shirt=(60, 110, 200),
+                        pants=(80, 70, 60), shoes=(50, 40, 30))
+            if head:
+                look["helmet"] = ITEMS[head].color
+            if body:
+                look["armor"] = ITEMS[body].color
+            if legs:
+                look["greaves"] = ITEMS[legs].color
+            self._player_looks[key] = {f: _flip_pair(_up(_humanoid(frame=f, **look)))
+                                       for f in ("idle", "jump", 0, 1, 2, 3)}
+        return self._player_looks[key]
 
     def tile(self, tid, tx, ty):
         variants = self.tile_tex.get(tid)

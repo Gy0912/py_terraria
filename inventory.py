@@ -1,4 +1,5 @@
-"""Inventory data, hotbar / inventory grid UI and the crafting panel."""
+"""Inventory data and the inventory screen: hotbar, bag grid, equipment, crafting,
+containers (chest / shipping bin / auto smelter) and NPC shops."""
 import pygame
 
 from items import ITEMS, RECIPES, STATION_NAMES
@@ -9,6 +10,8 @@ PAD = 4
 COLS = 10
 ROWS = 4
 ORIGIN = (10, 10)
+EQUIP_X = ORIGIN[0] + COLS * (SLOT + PAD) + 14
+EQUIP_LABELS = {"head": "头", "body": "身", "legs": "腿"}
 
 
 class Inventory:
@@ -17,23 +20,7 @@ class Inventory:
 
     def add(self, name, count):
         """Add items; returns the count that did not fit."""
-        max_stack = ITEMS[name].max_stack
-        for slot in self.slots:
-            if slot and slot[0] == name and slot[1] < max_stack:
-                room = max_stack - slot[1]
-                moved = min(room, count)
-                slot[1] += moved
-                count -= moved
-                if count == 0:
-                    return 0
-        for i, slot in enumerate(self.slots):
-            if slot is None:
-                moved = min(max_stack, count)
-                self.slots[i] = [name, moved]
-                count -= moved
-                if count == 0:
-                    return 0
-        return count
+        return add_to_slots(self.slots, name, count)
 
     def can_accept(self, name):
         max_stack = ITEMS[name].max_stack
@@ -65,6 +52,25 @@ class Inventory:
                 self.slots[index] = None
 
 
+def add_to_slots(slots, name, count):
+    max_stack = ITEMS[name].max_stack
+    for slot in slots:
+        if slot and slot[0] == name and slot[1] < max_stack:
+            moved = min(max_stack - slot[1], count)
+            slot[1] += moved
+            count -= moved
+            if count == 0:
+                return 0
+    for i, slot in enumerate(slots):
+        if slot is None:
+            moved = min(max_stack, count)
+            slots[i] = [name, moved]
+            count -= moved
+            if count == 0:
+                return 0
+    return count
+
+
 def can_craft(inv, recipe):
     return all(inv.count(n) >= c for n, c in recipe.ingredients.items())
 
@@ -78,13 +84,17 @@ def item_tooltip(name, count=None):
     lines = [(it.display + (f" ({count})" if count and count > 1 else ""), (255, 255, 255))]
     if it.damage and it.kind in ("weapon", "ranged", "magic", "tool"):
         lines.append((f"{it.damage} 点伤害", (220, 220, 220)))
-    if it.pick:
-        lines.append((f"镐力 {it.pick}%", (220, 220, 220)))
-    if it.axe:
-        lines.append((f"斧力 {it.axe}%", (220, 220, 220)))
+    for key, label in (("pick", "镐力"), ("axe", "斧力"), ("hammer", "锤力")):
+        if getattr(it, key):
+            lines.append((f"{label} {getattr(it, key)}%", (220, 220, 220)))
+    if it.defense:
+        lines.append((f"{it.defense} 点防御", (220, 220, 220)))
+    if it.slot:
+        lines.append(({"head": "头部装备", "body": "身体装备", "legs": "腿部装备"}.get(it.slot, "饰品"),
+                      (200, 200, 255)))
     if it.mana_cost:
         lines.append((f"消耗 {it.mana_cost} 魔力", (150, 180, 255)))
-    if it.kind == "block":
+    if it.kind in ("block", "wall"):
         lines.append(("可放置", (200, 200, 200)))
     if it.kind == "material":
         lines.append(("材料", (200, 200, 200)))
@@ -92,20 +102,27 @@ def item_tooltip(name, count=None):
         lines.append(("弹药", (200, 200, 200)))
     if it.desc:
         lines.append((it.desc, (180, 230, 180)))
+    if it.value:
+        lines.append((f"售价 {it.value} 金币", (250, 215, 90)))
     return lines
 
 
 class InventoryUI:
-    def __init__(self, inventory, assets):
-        self.inv = inventory
+    def __init__(self, player, assets):
+        self.player = player
+        self.inv = player.inventory
         self.assets = assets
         self.selected = 0
         self.open = False
         self.cursor = None            # [item_name, count] held by the mouse
         self.stations = set()
         self.recipe_scroll = 0
+        self.container = None         # (anchor, slots, title)
+        self.shop = None              # npc offering a shop
         self.font = get_font(13, bold=True)
         self._recipe_rects = []
+        self._shop_rects = []
+        self._button_rects = []
 
     # -------------------- geometry --------------------
 
@@ -113,22 +130,54 @@ class InventoryUI:
         row, col = divmod(i, COLS)
         return pygame.Rect(ORIGIN[0] + col * (SLOT + PAD), ORIGIN[1] + row * (SLOT + PAD), SLOT, SLOT)
 
+    def equip_rect(self, slot):
+        if slot in ("head", "body", "legs"):
+            col, row = 0, ("head", "body", "legs").index(slot)
+        else:
+            col, row = 1, int(slot[3])
+        return pygame.Rect(EQUIP_X + col * (SLOT + PAD), ORIGIN[1] + row * (SLOT + PAD), SLOT, SLOT)
+
     def inv_rect(self):
         rows = ROWS if self.open else 1
         return pygame.Rect(ORIGIN[0] - 4, ORIGIN[1] - 4, COLS * (SLOT + PAD) + 4, rows * (SLOT + PAD) + 4)
 
-    def craft_rect(self):
+    def equip_panel_rect(self):
+        return pygame.Rect(EQUIP_X - 4, ORIGIN[1] - 4, 2 * (SLOT + PAD) + 4, 5 * (SLOT + PAD) + 26)
+
+    def lower_rect(self):
         y = ORIGIN[1] + ROWS * (SLOT + PAD) + 34
-        return pygame.Rect(ORIGIN[0] - 4, y, 8 * (SLOT + PAD) + 4, 3 * (SLOT + PAD) + 8)
+        return pygame.Rect(ORIGIN[0] - 4, y, COLS * (SLOT + PAD) + 4, 3 * (SLOT + PAD) + 36)
 
     def over_ui(self, pos):
         if self.inv_rect().collidepoint(pos):
             return True
-        return self.open and self.craft_rect().collidepoint(pos)
+        return self.open and (self.lower_rect().collidepoint(pos) or self.equip_panel_rect().collidepoint(pos))
 
     def selected_item(self):
         s = self.inv.slots[self.selected]
         return s[0] if s else None
+
+    # -------------------- open / close --------------------
+
+    def open_container(self, anchor, slots, title):
+        self.open = True
+        self.shop = None
+        self.container = (anchor, slots, title)
+
+    def open_shop(self, npc):
+        self.open = True
+        self.container = None
+        self.shop = npc
+
+    def close(self, game):
+        self.open = False
+        self.container = None
+        self.shop = None
+        if self.cursor:
+            left = self.inv.add(*self.cursor)
+            if left:
+                game.drop_item(self.cursor[0], left)
+            self.cursor = None
 
     # -------------------- input --------------------
 
@@ -142,62 +191,118 @@ class InventoryUI:
         return False
 
     def handle_wheel(self, dy, mouse_pos):
-        if self.open and self.craft_rect().collidepoint(mouse_pos):
-            rows = (len(available_recipes(self.stations)) + 7) // 8
+        if self.open and self.lower_rect().collidepoint(mouse_pos) and not (self.container or self.shop):
+            rows = (len(available_recipes(self.stations)) + COLS - 1) // COLS
             self.recipe_scroll = max(0, min(max(0, rows - 3), self.recipe_scroll - dy))
         else:
             self.selected = (self.selected - dy) % COLS
 
     def handle_click(self, pos, button, game):
         """Returns True if the click was consumed by the UI."""
+        shift = pygame.key.get_mods() & pygame.KMOD_SHIFT
         n_slots = COLS * ROWS if self.open else COLS
         for i in range(n_slots):
             if self.slot_rect(i).collidepoint(pos):
                 if not self.open:
                     self.selected = i
-                elif button == 1:
-                    self._left_slot(i)
-                elif button == 3:
-                    self._right_slot(i)
+                elif shift and button == 1 and self.inv.slots[i]:
+                    self._quick_move(i, game)
+                else:
+                    self._click_slot(self.inv.slots, i, button)
                 return True
-        if self.open:
-            for rect, recipe in self._recipe_rects:
+        if not self.open:
+            return False
+        for slot in self.player.equip:
+            if self.equip_rect(slot).collidepoint(pos):
+                self._click_equip(slot)
+                return True
+        for rect, action in self._button_rects:
+            if rect.collidepoint(pos):
+                action(game)
+                return True
+        if self.shop:
+            for rect, (name, price) in self._shop_rects:
                 if rect.collidepoint(pos):
-                    if button == 1 and can_craft(self.inv, recipe):
-                        self._craft(recipe, game)
+                    game.buy(name, price)
                     return True
-            if self.craft_rect().collidepoint(pos):
+            if self.lower_rect().collidepoint(pos) and self.cursor:
+                game.sell(*self.cursor)
+                self.cursor = None
+            return self.lower_rect().collidepoint(pos)
+        if self.container:
+            slots = self.container[1]
+            for i in range(len(slots)):
+                if self._container_rect(i).collidepoint(pos):
+                    if shift and button == 1 and slots[i]:
+                        left = self.inv.add(*slots[i])
+                        slots[i] = None if not left else [slots[i][0], left]
+                    else:
+                        self._click_slot(slots, i, button)
+                    return True
+            return self.lower_rect().collidepoint(pos)
+        for rect, recipe in self._recipe_rects:
+            if rect.collidepoint(pos):
+                if button == 1 and can_craft(self.inv, recipe):
+                    self._craft(recipe, game)
                 return True
-        return False
+        return self.lower_rect().collidepoint(pos) or self.equip_panel_rect().collidepoint(pos)
 
-    def _left_slot(self, i):
-        slot = self.inv.slots[i]
+    def _quick_move(self, i, game):
+        stack = self.inv.slots[i]
+        if self.shop:
+            game.sell(*stack)
+            self.inv.slots[i] = None
+        elif self.container:
+            left = add_to_slots(self.container[1], *stack)
+            self.inv.slots[i] = None if not left else [stack[0], left]
+        elif ITEMS[stack[0]].slot:
+            self.cursor, self.inv.slots[i] = stack, None
+            for slot in self.player.equip:
+                if self.player.can_equip(slot, stack[0]) and (not slot.startswith("acc") or
+                                                               self.player.equip[slot] is None):
+                    self._click_equip(slot)
+                    break
+            if self.cursor:
+                self.inv.slots[i], self.cursor = self.cursor, None
+
+    def _click_slot(self, slots, i, button):
+        slot = slots[i]
         cur = self.cursor
+        if button == 3:
+            if slot is None:
+                return
+            if cur is None:
+                self.cursor = [slot[0], 1]
+            elif cur[0] == slot[0] and cur[1] < ITEMS[slot[0]].max_stack:
+                cur[1] += 1
+            else:
+                return
+            slot[1] -= 1
+            if slot[1] <= 0:
+                slots[i] = None
+            return
         if cur is None:
-            self.cursor, self.inv.slots[i] = slot, None
+            self.cursor, slots[i] = slot, None
         elif slot is None:
-            self.inv.slots[i], self.cursor = cur, None
+            slots[i], self.cursor = cur, None
         elif slot[0] == cur[0]:
-            room = ITEMS[slot[0]].max_stack - slot[1]
-            moved = min(room, cur[1])
+            moved = min(ITEMS[slot[0]].max_stack - slot[1], cur[1])
             slot[1] += moved
             cur[1] -= moved
             if cur[1] == 0:
                 self.cursor = None
         else:
-            self.inv.slots[i], self.cursor = cur, slot
+            slots[i], self.cursor = cur, slot
 
-    def _right_slot(self, i):
-        slot = self.inv.slots[i]
-        if slot is None:
+    def _click_equip(self, slot):
+        p = self.player
+        held = self.cursor[0] if self.cursor else None
+        if held is not None and (self.cursor[1] != 1 or not p.can_equip(slot, held)):
             return
-        if self.cursor is None:
-            self.cursor = [slot[0], 1]
-        elif self.cursor[0] == slot[0] and self.cursor[1] < ITEMS[slot[0]].max_stack:
-            self.cursor[1] += 1
-        else:
-            return
-        self.inv.consume_slot(i)
+        old = p.equip[slot]
+        p.equip[slot] = held
+        self.cursor = [old, 1] if old else None
+        p.recompute_stats()
 
     def _craft(self, recipe, game):
         for name, count in recipe.ingredients.items():
@@ -207,17 +312,24 @@ class InventoryUI:
             game.drop_item(recipe.result, left)
         game.add_text(f"制作了 {ITEMS[recipe.result].display}", (255, 240, 150))
 
-    def close(self, game):
-        self.open = False
-        if self.cursor:
-            left = self.inv.add(*self.cursor)
-            if left:
-                game.drop_item(self.cursor[0], left)
-            self.cursor = None
+    def _deposit_all(self, game):
+        slots = self.container[1]
+        for i in range(COLS, len(self.inv.slots)):
+            s = self.inv.slots[i]
+            if s:
+                left = add_to_slots(slots, *s)
+                self.inv.slots[i] = None if not left else [s[0], left]
+
+    def _loot_all(self, game):
+        slots = self.container[1]
+        for i, s in enumerate(slots):
+            if s:
+                left = self.inv.add(*s)
+                slots[i] = None if not left else [s[0], left]
 
     # -------------------- drawing --------------------
 
-    def _draw_slot(self, surf, rect, stack, highlight=False, dim=False):
+    def _draw_slot(self, surf, rect, stack, highlight=False, dim=False, label=None):
         bg = pygame.Surface(rect.size, pygame.SRCALPHA)
         bg.fill((60, 80, 170, 200) if highlight else (35, 45, 110, 170))
         surf.blit(bg, rect.topleft)
@@ -234,6 +346,8 @@ class InventoryUI:
                 sh = self.font.render(str(stack[1]), True, (0, 0, 0))
                 surf.blit(sh, (rect.x + 4, rect.bottom - 16))
                 surf.blit(txt, (rect.x + 3, rect.bottom - 17))
+        elif label:
+            draw_text(surf, label, rect.center, 14, (140, 150, 200), shadow=False, center=True)
 
     def draw(self, surf):
         mouse = pygame.mouse.get_pos()
@@ -248,14 +362,30 @@ class InventoryUI:
                 surf.blit(num, (rect.right - 10, rect.y + 2))
             if stack and rect.collidepoint(mouse) and self.cursor is None:
                 hover_lines = item_tooltip(stack[0], stack[1])
+                if self.open and self.shop:
+                    hover_lines.append(("Shift+左键 出售", (250, 215, 90)))
+                elif self.open and self.container:
+                    hover_lines.append(("Shift+左键 存入", (200, 220, 255)))
 
         sel = self.selected_item()
-        if sel and not self.open:
-            draw_text(surf, ITEMS[sel].display, (ORIGIN[0], ORIGIN[1] + SLOT + 6), 15)
+        coins = self.inv.count("coin")
+        if not self.open:
+            if sel:
+                draw_text(surf, ITEMS[sel].display, (ORIGIN[0], ORIGIN[1] + SLOT + 6), 15)
+            draw_text(surf, f"金币 {coins}", (ORIGIN[0] + 330, ORIGIN[1] + SLOT + 6), 15, (250, 215, 90))
 
         self._recipe_rects = []
+        self._shop_rects = []
+        self._button_rects = []
         if self.open:
-            hover_lines = self._draw_crafting(surf, mouse) or hover_lines
+            hover_lines = self._draw_equipment(surf, mouse) or hover_lines
+            draw_text(surf, f"金币 {coins}", (EQUIP_X, self.equip_panel_rect().bottom + 4), 15, (250, 215, 90))
+            if self.shop:
+                hover_lines = self._draw_shop(surf, mouse) or hover_lines
+            elif self.container:
+                hover_lines = self._draw_container(surf, mouse) or hover_lines
+            else:
+                hover_lines = self._draw_crafting(surf, mouse) or hover_lines
 
         if self.cursor:
             surf.blit(self.assets.icons[self.cursor[0]], (mouse[0] - 8, mouse[1] - 8))
@@ -264,20 +394,91 @@ class InventoryUI:
         elif hover_lines:
             tooltip(surf, hover_lines, mouse)
 
-    def _draw_crafting(self, surf, mouse):
-        rect = self.craft_rect()
-        names = "、".join(STATION_NAMES[s] for s in sorted(self.stations)) or "无"
-        draw_text(surf, f"制作（附近制作站：{names}）", (rect.x + 4, rect.y - 24), 15, (255, 240, 150))
+    def _draw_equipment(self, surf, mouse):
+        p = self.player
+        panel(surf, self.equip_panel_rect(), 120)
+        hover = None
+        for slot, name in p.equip.items():
+            rect = self.equip_rect(slot)
+            label = EQUIP_LABELS.get(slot, "饰")
+            self._draw_slot(surf, rect, [name, 1] if name else None, label=label)
+            if name and rect.collidepoint(mouse) and self.cursor is None:
+                hover = item_tooltip(name)
+        r = self.equip_panel_rect()
+        draw_text(surf, f"防御 {p.defense}", (r.x + 6, r.bottom - 22), 15, (200, 220, 255))
+        return hover
+
+    def _panel_title(self, surf, text):
+        rect = self.lower_rect()
+        draw_text(surf, text, (rect.x + 4, rect.y - 24), 15, (255, 240, 150))
         panel(surf, rect, 150)
+        return rect
+
+    def _button(self, surf, rect, text, action):
+        pygame.draw.rect(surf, (60, 80, 170), rect, border_radius=4)
+        pygame.draw.rect(surf, (220, 220, 255), rect, 1, border_radius=4)
+        draw_text(surf, text, rect.center, 14, center=True)
+        self._button_rects.append((rect, action))
+
+    def _container_rect(self, i):
+        rect = self.lower_rect()
+        row, col = divmod(i, COLS)
+        return pygame.Rect(rect.x + 4 + col * (SLOT + PAD), rect.y + 4 + row * (SLOT + PAD), SLOT, SLOT)
+
+    def _draw_container(self, surf, mouse):
+        anchor, slots, title = self.container
+        rect = self._panel_title(surf, title)
+        hover = None
+        for i, stack in enumerate(slots):
+            r = self._container_rect(i)
+            self._draw_slot(surf, r, stack)
+            if stack and r.collidepoint(mouse) and self.cursor is None:
+                hover = item_tooltip(stack[0], stack[1]) + [("Shift+左键 取出", (200, 220, 255))]
+        by = rect.bottom - 30
+        self._button(surf, pygame.Rect(rect.x + 6, by, 110, 24), "全部存入", self._deposit_all)
+        self._button(surf, pygame.Rect(rect.x + 124, by, 110, 24), "全部取出", self._loot_all)
+        hint = self.container_hint()
+        if hint:
+            draw_text(surf, hint, (rect.x + 244, by + 3), 13, (220, 220, 220))
+        return hover
+
+    def container_hint(self):
+        from tiles import TILES
+        anchor, slots, _ = self.container
+        name = TILES[self.player.world.objects.get(anchor, 0)].name
+        if name == "shipping_bin":
+            total = sum(ITEMS[s[0]].value * s[1] for s in slots if s)
+            return f"早上 6:00 自动售出，预计 {total} 金币"
+        if name == "auto_smelter":
+            return "放入矿石，每 4 秒自动冶炼一次"
+        return ""
+
+    def _draw_shop(self, surf, mouse):
+        npc = self.shop
+        rect = self._panel_title(surf, f"{npc.name} 的商店（把物品拖到这里或 Shift+左键 出售）")
+        hover = None
+        for k, (name, price) in enumerate(npc.shop_items()):
+            row, col = divmod(k, COLS)
+            r = pygame.Rect(rect.x + 4 + col * (SLOT + PAD), rect.y + 4 + row * (SLOT + PAD + 12), SLOT, SLOT)
+            self._draw_slot(surf, r, [name, 1])
+            draw_text(surf, str(price), (r.centerx, r.bottom + 6), 12, (250, 215, 90), center=True)
+            self._shop_rects.append((r, (name, price)))
+            if r.collidepoint(mouse) and self.cursor is None:
+                hover = item_tooltip(name) + [(f"购买价 {price} 金币（左键购买）", (250, 215, 90))]
+        return hover
+
+    def _draw_crafting(self, surf, mouse):
+        names = "、".join(STATION_NAMES[s] for s in sorted(self.stations)) or "无"
+        rect = self._panel_title(surf, f"制作（附近制作站：{names}）")
         recipes = available_recipes(self.stations)
         recipes.sort(key=lambda r: not can_craft(self.inv, r))
-        start = self.recipe_scroll * 8
+        start = self.recipe_scroll * COLS
         hover = None
-        for k, recipe in enumerate(recipes[start:start + 24]):
-            row, col = divmod(k, 8)
+        for k, recipe in enumerate(recipes[start:start + COLS * 3]):
+            row, col = divmod(k, COLS)
             r = pygame.Rect(rect.x + 4 + col * (SLOT + PAD), rect.y + 4 + row * (SLOT + PAD), SLOT, SLOT)
             ok = can_craft(self.inv, recipe)
-            self._draw_slot(surf, r, [recipe.result, recipe.count], highlight=False, dim=not ok)
+            self._draw_slot(surf, r, [recipe.result, recipe.count], dim=not ok)
             self._recipe_rects.append((r, recipe))
             if r.collidepoint(mouse):
                 lines = item_tooltip(recipe.result, recipe.count)
@@ -290,6 +491,7 @@ class InventoryUI:
                     lines.append((f"制作站：{STATION_NAMES[recipe.station]}", (200, 200, 255)))
                 lines.append(("左键制作" if ok else "材料不足", (255, 255, 255) if ok else (255, 140, 140)))
                 hover = lines
-        if len(recipes) > 24:
-            draw_text(surf, "滚轮翻页", (rect.right - 70, rect.bottom + 2), 13, (200, 200, 200))
+        if len(recipes) > COLS * 3:
+            draw_text(surf, f"滚轮翻页（{len(recipes)} 个配方）", (rect.right - 170, rect.bottom - 22), 13,
+                      (200, 200, 200))
         return hover

@@ -37,11 +37,12 @@ class ItemDrop:
         px, py = player.center()
         cx, cy = self.center()
         dist = math.hypot(px - cx, py - cy)
-        self.magnet = (player.alive and self.pickup_delay == 0 and dist < MAGNET_RADIUS
+        radius = MAGNET_RADIUS * player.stats["magnet"]
+        self.magnet = (player.alive and self.pickup_delay == 0 and dist < radius
                        and player.inventory.can_accept(self.name))
         if self.magnet:
             # fly straight to the player, ignoring tiles
-            speed = min(8.0, 2.0 + (MAGNET_RADIUS - dist) * 0.08)
+            speed = min(9.0, 2.0 + (radius - dist) * 0.08)
             self.vx += ((px - cx) / max(dist, 1) * speed - self.vx) * 0.3
             self.vy += ((py - cy) / max(dist, 1) * speed - self.vy) * 0.3
             self.x += self.vx

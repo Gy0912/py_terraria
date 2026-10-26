@@ -1,34 +1,45 @@
 # game settings
 TITLE = "PyTerraria"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 SCREEN_WIDTH = 1080
 SCREEN_HEIGHT = 655
 FPS = 60
 
 # world properties (in tiles unless noted)
-TILE_SIZE = 32
-CHUNK_SIZE = 16
-WORLD_W = 5000
-WORLD_H = 1000
+TILE_SIZE = 16
+CHUNK_SIZE = 32
+WORLD_W = 6400
+WORLD_H = 1800
 MAP_WIDTH = WORLD_W * TILE_SIZE    # pixels
 MAP_HEIGHT = WORLD_H * TILE_SIZE   # pixels
 
-SPACE_LINE = 80            # rows above this are "space"
-SURFACE_LEVEL = 300        # mean surface row
-SEA_LEVEL = 304            # ocean water fills down from this row
-SURFACE_LAYER_DEPTH = 18   # rows below the local surface still counted as surface layer
-CAVERN_LINE = 480
-HELL_LINE = 850
-LAVA_LINE = 955
+SPACE_LINE = 150           # rows above this are "space"
+SKY_ISLAND_TOP = 250       # floating islands sit between these rows
+SKY_ISLAND_BOTTOM = 360
+SURFACE_LEVEL = 520        # mean surface row
+SEA_LEVEL = 528            # ocean water fills down from this row
+SURFACE_LAYER_DEPTH = 30   # rows below the local surface still counted as surface layer
+CAVERN_LINE = 860
+HELL_LINE = 1560
+LAVA_LINE = 1720
+
+LIGHT_CELL = 32            # lighting is computed on a 32px grid regardless of tile size
 
 # day / night: frames per full 24h cycle
-DAY_LENGTH = FPS * 60 * 6
+DAY_LENGTH = FPS * 60 * 8
 START_HOUR = 8.0
 
 # player
-PLAYER_REACH = 6           # tiles
+PLAYER_REACH = 8           # tiles
 MAGNET_RADIUS = 96         # pixels
 PICKUP_RADIUS = 22         # pixels
+FALL_SAFE_TILES = 25
+BREATH_MAX = 600           # frames of air (10 s)
+
+# saves
+SAVE_DIR = "saves"
+SAVE_SLOTS = 3
+AUTOSAVE_SECONDS = 180
 
 # colors
 WHITE = (255, 255, 255)
@@ -74,4 +85,4 @@ BIOME_NAMES = {
     "space": "太空", "under_ground": "地下", "under_snow": "地下雪原", "under_jungle": "地下丛林",
     "under_ocean": "地下", "cave": "洞穴层", "hell": "地狱",
 }
-LAYER_NAMES = {"space": "太空", "surface": "地表", "underground": "地下", "cavern": "洞穴", "hell": "地狱"}
+LAYER_NAMES = {"space": "天空", "surface": "地表", "underground": "地下", "cavern": "洞穴", "hell": "地狱"}

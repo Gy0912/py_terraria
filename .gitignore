@@ -39,8 +39,9 @@ htmlcov/
 .nox/
 .hypothesis/
 
-# Smoke-test output
+# Smoke-test output and local save games
 tools/screenshots/
+saves/
 
 # OS
 Thumbs.db

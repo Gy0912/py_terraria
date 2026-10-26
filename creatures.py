@@ -42,6 +42,8 @@ CREATURE_TYPES = {
     "hornet": dict(ai="flyer", name="黄蜂", size=(28, 24), hp=45, dmg=22, defense=6, speed=2.4, drops=[]),
     "hellbat": dict(ai="flyer", name="地狱蝙蝠", size=(30, 18), hp=50, dmg=30, defense=8, speed=3.6,
                     drops=[("hellstone", 1, 1, 0.3)], light=(3, 0.6)),
+    "servant_eye": dict(ai="flyer", name="巨眼仆从", size=(22, 15), hp=12, dmg=12, defense=0, speed=4.0,
+                        drops=[]),
 }
 
 
@@ -123,7 +125,7 @@ class Creature:
         px, py = player.center()
         cx, cy = self.center()
         dx = px - cx
-        near = player.alive and abs(dx) < 30 * TS and abs(py - cy) < 20 * TS
+        near = player.alive and abs(dx) < 900 and abs(py - cy) < 600
         ai = self.t["ai"]
         if ai == "slime":
             self._slime(dx, near)
@@ -138,8 +140,8 @@ class Creature:
             gravity *= 0.4
             max_fall = 3.0
         self.vy = min(self.vy + gravity, max_fall)
-        self.x, blocked = move_x(self.world, self.x, self.y, self.w, self.h, self.vx)
-        self.y, landed, ceil = move_y(self.world, self.x, self.y, self.w, self.h, self.vy)
+        self.x, blocked = move_x(self.world, self.x, self.y, self.w, self.h, self.vx, creature=True)
+        self.y, landed, ceil = move_y(self.world, self.x, self.y, self.w, self.h, self.vy, creature=True)
         if landed or ceil:
             self.vy = 0.0
         self.on_ground = landed
@@ -190,11 +192,11 @@ class Creature:
         wobble = math.sin(self.anim * 0.15) * 0.8 if "bat" in self.kind else 0.0
         self.vx += (tx - self.vx) * 0.04
         self.vy += (ty + wobble - self.vy) * 0.04
-        self.x, bx = move_x(self.world, self.x, self.y, self.w, self.h, self.vx)
+        self.x, bx = move_x(self.world, self.x, self.y, self.w, self.h, self.vx, creature=True)
         if bx:
             self.vx = -self.vx * 0.7
             self.wander = -self.wander
-        self.y, landed, ceil = move_y(self.world, self.x, self.y, self.w, self.h, self.vy)
+        self.y, landed, ceil = move_y(self.world, self.x, self.y, self.w, self.h, self.vy, creature=True)
         if landed or ceil:
             self.vy = -self.vy * 0.7
         if abs(self.vx) > 0.2:
@@ -226,14 +228,21 @@ class Creature:
             pygame.draw.rect(surf, (230, 40, 40), (bx, sy - 8, bw * self.hp / self.max_hp, 4))
 
 
+SLIME_RAIN = [("green_slime", 5), ("blue_slime", 4), ("sand_slime", 1), ("jungle_slime", 1)]
+
+
 class CreatureManager:
     def __init__(self, world):
         self.world = world
-        self.creatures = []
+        self.creatures = []       # also holds active bosses and their minions
         self.cooldown = 120
+        self.slime_rain = False
 
     def clear(self):
-        self.creatures = []
+        self.creatures = [c for c in self.creatures if getattr(c, "is_boss", False)]
+
+    def normal_count(self):
+        return sum(1 for c in self.creatures if not getattr(c, "is_boss", False))
 
     def update(self, player, night):
         if player.alive:
@@ -241,8 +250,8 @@ class CreatureManager:
         for c in self.creatures:
             c.update(player)
         px, py = player.center()
-        self.creatures = [c for c in self.creatures
-                          if c.alive and abs(c.x - px) < SCREEN_WIDTH * 2.5 and abs(c.y - py) < SCREEN_HEIGHT * 3]
+        self.creatures = [c for c in self.creatures if c.alive and (
+            getattr(c, "is_boss", False) or (abs(c.x - px) < SCREEN_WIDTH * 2.5 and abs(c.y - py) < SCREEN_HEIGHT * 3))]
 
     def _spawn_tick(self, player, night):
         self.cooldown -= 1
@@ -251,50 +260,61 @@ class CreatureManager:
         ptx = int(player.center()[0]) // TS
         pty = int(player.center()[1]) // TS
         layer = self.world.layer_at(ptx, pty)
-        if layer == "surface":
+        rain = self.slime_rain and layer == "surface"
+        if rain:
+            interval, cap = 70, 14
+        elif layer == "surface":
             interval, cap = (150, 9) if night else (260, 5)
         elif layer == "hell":
             interval, cap = 150, 10
+        elif layer == "space":
+            interval, cap = 300, 3
         else:
             interval, cap = 180, 8
-        self.cooldown = interval + random.randint(-30, 30)
-        if len(self.creatures) >= cap:
+        self.cooldown = interval + random.randint(-20, 20)
+        if self.normal_count() >= cap:
             return
-        self._try_spawn(ptx, pty, night)
+        self._try_spawn(ptx, pty, night, rain)
 
-    def _try_spawn(self, ptx, pty, night):
+    def _try_spawn(self, ptx, pty, night, rain=False):
         world = self.world
         half = SCREEN_WIDTH // TS // 2
         for _ in range(8):
-            tx = ptx + random.choice((-1, 1)) * random.randint(half + 2, half + 14)
-            if not (2 <= tx < WORLD_W - 2):
+            tx = ptx + random.choice((-1, 1)) * random.randint(half + 3, half + 26)
+            if not (2 <= tx < WORLD_W - 3):
                 continue
-            for ty in sorted(range(pty - 14, pty + 15), key=lambda y: abs(y - pty) + random.random() * 6):
-                if not (2 <= ty < WORLD_H - 3):
+            for ty in sorted(range(pty - 24, pty + 25), key=lambda y: abs(y - pty) + random.random() * 10):
+                if not (2 <= ty < WORLD_H - 4):
                     continue
                 layer = world.layer_at(tx, ty)
-                table = spawn_table(layer, world.biome_at(tx, ty), night)
+                if rain:
+                    table = SLIME_RAIN
+                else:
+                    table = spawn_table("surface" if layer == "space" else layer, world.biome_at(tx, ty), night)
                 if not table:
                     continue
                 kind = random.choices([k for k, _ in table], [w for _, w in table])[0]
                 ai = CREATURE_TYPES[kind]["ai"]
-                if not self._fits(tx, ty, ai):
-                    continue
                 w, h = CREATURE_TYPES[kind]["size"]
+                if not self._fits(tx, ty, ai, w, h):
+                    continue
                 x = tx * TS + (TS - w) / 2
                 y = (ty + 1) * TS - h if ai != "flyer" else ty * TS
                 self.creatures.append(Creature(kind, x, y, world))
                 return
 
-    def _fits(self, tx, ty, ai):
-        g = self.world.get_tile
-        open_air = all(not SOLID[g(tx + dx, ty - dy)] and not LIQUID[g(tx + dx, ty - dy)]
-                       for dx in (0, 1) for dy in (0, 1))
-        if not open_air:
-            return False
+    def _fits(self, tx, ty, ai, w, h):
+        """Room for a w x h creature whose feet rest on row ty (flyers just need open air)."""
+        g = self.world.peek_tile
+        tw, th = -(-w // TS), -(-h // TS)
+        for dx in range(tw):
+            for dy in range(th):
+                t = g(tx + dx, ty - dy)
+                if t is None or SOLID[t] or LIQUID[t]:
+                    return False
         if ai == "flyer":
             return True
-        return SOLID[g(tx, ty + 1)] and SOLID[g(tx + 1, ty + 1)]
+        return all(g(tx + dx, ty + 1) is not None and SOLID[g(tx + dx, ty + 1)] for dx in range(tw))
 
     def draw(self, surf, cam, assets):
         for c in self.creatures:
