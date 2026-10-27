@@ -6,11 +6,12 @@ small cellular automaton that only touches "active" cells.
 import random
 
 from settings import *
-from tiles import TILES, AIR, SOLID, LIQUID, EMITS_LIGHT, BLOCKS_CREATURES, IS_OBJECT, LEAF_TILES, T
+from tiles import (TILES, AIR, SOLID, LIQUID, EMITS_LIGHT, BLOCKS_CREATURES, BLOCKS_FLYERS, IS_OBJECT,
+                   LEAF_TILES, T)
 from worldgen import WorldGen
 
 _OBSIDIAN = T["obsidian"]
-CONTAINER_SIZE = {"chest": 20, "shipping_bin": 20, "auto_smelter": 10}
+CONTAINER_SIZE = {"chest": 20, "gold_chest": 20, "shipping_bin": 20, "furnace": 3}
 
 
 class World:
@@ -37,6 +38,9 @@ class World:
         self.liquid_tick = 0
         self.flags = {}
         self.pending_npcs = []    # (npc kind, tx, ty) bound NPCs inside structures
+        self.notes = {}           # (tx, ty) of a lore tablet -> note id
+        self.locked = set()       # anchors of locked gold chests
+        self.furnaces = {}        # anchor -> [progress frames, batches of fuel left]
         self.spawn_tx = WORLD_W // 2
         self.spawn_ty = self.surface[self.spawn_tx]
         for st in self.gen.structures:
@@ -44,6 +48,9 @@ class World:
                 self._register_object(tid, ax, ay)
             for ax, ay, slots in st.chests:
                 self.containers[(ax, ay)] = slots
+            self.locked.update(st.locked)
+            for x, y, note in st.notes:
+                self.notes[(x, y)] = note
             if st.npc:
                 self.pending_npcs.append(st.npc)
 
@@ -135,6 +142,13 @@ class World:
             return False
         return BLOCKS_CREATURES[self.get_tile(tx, ty)]
 
+    def blocks_flyer(self, tx, ty):
+        if tx < 0 or tx >= WORLD_W or ty >= WORLD_H:
+            return True
+        if ty < 0:
+            return False
+        return BLOCKS_FLYERS[self.get_tile(tx, ty)]
+
     def set_tile(self, tx, ty, tid):
         if tx < 0 or tx >= WORLD_W or ty < 0 or ty >= WORLD_H:
             return
@@ -180,6 +194,8 @@ class World:
         name = TILES[tid].name
         if name in CONTAINER_SIZE and (ax, ay) not in self.containers:
             self.containers[(ax, ay)] = [None] * CONTAINER_SIZE[name]
+        if name == "furnace":
+            self.furnaces.setdefault((ax, ay), [0, 0])
 
     def object_at(self, tx, ty):
         return self.obj_cells.get((tx, ty))
@@ -197,6 +213,8 @@ class World:
         tid = self.objects.pop(anchor, None)
         if tid is None:
             return None, None
+        self.furnaces.pop(anchor, None)
+        self.locked.discard(anchor)
         ax, ay = anchor
         w, h = TILES[tid].size
         for dx in range(w):

@@ -188,15 +188,40 @@ def _t_ash(rng):
     return s
 
 
-def _t_ore(rng, color):
+def _t_ore(rng, color, rim):
+    """Darkened stone with three large outlined nuggets so ores read clearly at a glance."""
     s = _t_stone(rng)
-    for _ in range(rng.randint(3, 4)):
-        cx, cy = rng.randrange(2, 14), rng.randrange(2, 14)
-        pts = [(cx, cy), (cx + 1, cy), (cx, cy + 1), (cx - 1, cy), (cx, cy - 1)]
-        for p in pts[:rng.randint(3, 5)]:
-            s.set_at(p, color)
-        s.set_at((cx, cy - 1) if rng.random() < 0.5 else (cx - 1, cy), shade(color, 1.3))
-        s.set_at((cx + 1, cy + 1), shade(color, 0.6))
+    s.fill((205, 205, 205), special_flags=pygame.BLEND_RGB_MULT)
+    spots = [(rng.randint(1, 5), rng.randint(1, 5)), (rng.randint(8, 11), rng.randint(2, 6)),
+             (rng.randint(3, 9), rng.randint(9, 12))]
+    for x, y in spots:
+        w, h = rng.randint(3, 4), rng.randint(3, 4)
+        pygame.draw.rect(s, rim, (x - 1, y - 1, w + 2, h + 2), border_radius=1)
+        pygame.draw.rect(s, color, (x, y, w, h))
+        s.set_at((x, y), shade(color, 1.35))
+        s.set_at((x + 1, y), shade(color, 1.2))
+        s.set_at((x + w - 1, y + h - 1), shade(color, 0.75))
+    return s
+
+
+def _t_cobweb(rng):
+    s = _canvas()
+    col = (235, 235, 240, 190)
+    for a, b in (((0, 0), (15, 15)), ((15, 0), (0, 15)), ((8, 0), (8, 15)), ((0, 8), (15, 8))):
+        pygame.draw.line(s, col, a, b)
+    for r in (3, 6):
+        pygame.draw.rect(s, (235, 235, 240, 140), (8 - r, 8 - r, r * 2, r * 2), 1)
+    return s
+
+
+def _t_lore_note(rng):
+    s = _canvas()
+    pygame.draw.rect(s, (150, 140, 105), (3, 2, 10, 14), border_radius=2)
+    pygame.draw.rect(s, (95, 88, 65), (3, 2, 10, 14), 1, border_radius=2)
+    for y in (5, 8, 11):
+        pygame.draw.line(s, (90, 80, 60), (5, y), (10, y))
+    s.set_at((7, 3), (255, 230, 120))
+    s.set_at((8, 3), (255, 230, 120))
     return s
 
 
@@ -415,18 +440,10 @@ def _o_shipping_bin():
     return s
 
 
-def _o_auto_smelter():
-    s = _o_furnace()
-    pygame.draw.rect(s, (190, 190, 200), (2, 4, 4, 3))
-    pygame.draw.rect(s, (190, 190, 200), (18, 4, 4, 3))
-    pygame.draw.line(s, (90, 200, 250), (2, 15), (21, 15))
-    return s
-
-
 _OBJ_GEN = {
     "workbench": _o_workbench, "furnace": _o_furnace, "anvil": _o_anvil, "chest": _o_chest,
+    "gold_chest": lambda: _o_chest((205, 160, 55), (255, 235, 140)),
     "bed": _o_bed, "door": _o_door, "pylon": _o_pylon, "shipping_bin": _o_shipping_bin,
-    "auto_smelter": _o_auto_smelter,
 }
 
 
@@ -499,9 +516,12 @@ _TILE_GEN = {
     "mud": _t_mud,
     "jungle_grass": lambda r: _t_grass_on(r, (92, 68, 70), (120, 205, 45)),
     "ash": _t_ash,
-    "copper_ore": lambda r: _t_ore(r, (215, 125, 60)),
-    "iron_ore": lambda r: _t_ore(r, (200, 175, 160)),
-    "gold_ore": lambda r: _t_ore(r, (245, 210, 60)),
+    "coal_ore": lambda r: _t_ore(r, (28, 28, 34), (8, 8, 10)),
+    "copper_ore": lambda r: _t_ore(r, (240, 130, 55), (115, 50, 20)),
+    "iron_ore": lambda r: _t_ore(r, (230, 190, 150), (135, 70, 45)),
+    "gold_ore": lambda r: _t_ore(r, (255, 222, 60), (140, 100, 15)),
+    "cobweb": _t_cobweb,
+    "lore_note": _t_lore_note,
     "hellstone": _t_hellstone,
     "wood": _t_wood,
     "tree": _t_trunk,
@@ -842,7 +862,69 @@ def _i_coin(c):
     return s
 
 
+def _i_coal(c):
+    s = _canvas()
+    pygame.draw.polygon(s, (30, 30, 36), [(3, 9), (6, 4), (11, 3), (14, 8), (12, 13), (5, 13)])
+    pygame.draw.line(s, (110, 110, 125), (7, 5), (10, 4))
+    s.set_at((6, 8), (90, 90, 100))
+    _outline(s, (10, 10, 12))
+    return s
+
+
+def _i_lockpick(c):
+    s = _canvas()
+    pygame.draw.line(s, (200, 200, 210), (2, 14), (11, 5), 2)
+    pygame.draw.line(s, (200, 200, 210), (11, 5), (14, 5), 1)
+    pygame.draw.line(s, (200, 200, 210), (14, 5), (14, 3), 1)
+    pygame.draw.rect(s, (120, 80, 50), (1, 12, 4, 4))
+    _outline(s, (60, 60, 70))
+    return s
+
+
+def _i_map(c):
+    s = _canvas()
+    pygame.draw.rect(s, (220, 200, 150), (2, 3, 12, 10))
+    pygame.draw.line(s, (160, 130, 90), (6, 3), (6, 12))
+    pygame.draw.line(s, (160, 130, 90), (10, 3), (10, 12))
+    pygame.draw.line(s, (200, 40, 40), (8, 6), (11, 9), 2)
+    pygame.draw.line(s, (200, 40, 40), (11, 6), (8, 9), 2)
+    _outline(s, (110, 85, 50))
+    return s
+
+
+def _i_cardpack(c):
+    s = _canvas()
+    pygame.draw.rect(s, (90, 60, 160), (4, 1, 9, 13), border_radius=2)
+    pygame.draw.rect(s, c, (2, 3, 9, 12), border_radius=2)
+    pygame.draw.polygon(s, (255, 230, 120), [(6, 6), (7, 8), (9, 8), (7, 10), (8, 12), (6, 11), (4, 12),
+                                             (5, 10), (3, 8), (5, 8)])
+    _outline(s, (40, 25, 70))
+    return s
+
+
+def _i_meat(c):
+    s = _canvas()
+    pygame.draw.ellipse(s, c, (2, 2, 10, 9))
+    pygame.draw.line(s, (240, 235, 220), (10, 10), (14, 14), 2)
+    pygame.draw.circle(s, (240, 235, 220), (14, 14), 1)
+    pygame.draw.line(s, shade(c, 1.3), (4, 4), (7, 3))
+    _outline(s, shade(c, 0.45))
+    return s
+
+
+def _i_badge(c):
+    s = _canvas()
+    pygame.draw.polygon(s, (170, 50, 50), [(5, 0), (8, 6), (11, 0)])
+    pygame.draw.circle(s, c, (8, 10), 5)
+    pygame.draw.circle(s, shade(c, 0.7), (8, 10), 3, 1)
+    s.set_at((7, 9), (255, 250, 220))
+    _outline(s, shade(c, 0.4))
+    return s
+
+
 _ICON_GEN = {
+    "coal": _i_coal, "lockpick": _i_lockpick, "map": _i_map, "cardpack": _i_cardpack, "meat": _i_meat,
+    "badge": _i_badge,
     "pickaxe": _i_pickaxe, "axe": _i_axe, "sword": _i_sword, "bow": _i_bow, "arrow": _i_arrow,
     "staff": _i_staff, "bar": _i_bar, "gel": _i_gel, "lens": _i_lens, "bone": _i_bone,
     "potion": _i_potion, "hammer": _i_hammer, "helmet": _i_helmet, "chestplate": _i_chestplate,
@@ -939,6 +1021,99 @@ def _humanoid(skin, hair, shirt, pants, shoes, frame, zombie=False, skeleton=Fal
         pygame.draw.rect(s, hat, (3, 0, 6, 2))
         pygame.draw.rect(s, shade(hat, 0.75), (1, 2, 10, 1))
         s.set_at((5, 1), (250, 220, 90))
+    return s
+
+
+def _bunny(frame):
+    s = _canvas(8, 7)
+    body = (225, 222, 215)
+    pygame.draw.ellipse(s, body, (0, 3, 6, 4))
+    pygame.draw.rect(s, body, (5, 1, 3, 3))
+    s.set_at((6, 0), body)
+    s.set_at((7, 0), (240, 170, 180))
+    s.set_at((7, 2), (20, 20, 20))
+    s.set_at((0, 3), (255, 255, 255))
+    s.set_at((1 + frame, 6), shade(body, 0.7))
+    s.set_at((4 - frame, 6), shade(body, 0.7))
+    return s
+
+
+def _penguin(frame):
+    s = _canvas(8, 10)
+    pygame.draw.ellipse(s, (30, 30, 40), (1, 1, 6, 9))
+    pygame.draw.ellipse(s, (240, 240, 245), (3, 3, 4, 6))
+    s.set_at((6, 2), (255, 255, 255))
+    s.set_at((7, 3), (250, 160, 40))
+    s.set_at((2 + frame, 9), (250, 160, 40))
+    s.set_at((5 - frame, 9), (250, 160, 40))
+    return s
+
+
+def _bird(up):
+    s = _canvas(7, 5)
+    pygame.draw.ellipse(s, (90, 120, 200), (1, 2, 5, 3))
+    s.set_at((5, 1), (90, 120, 200))
+    s.set_at((6, 2), (250, 190, 50))
+    s.set_at((5, 2), (20, 20, 20))
+    if up:
+        pygame.draw.line(s, (60, 90, 170), (2, 2), (1, 0))
+        pygame.draw.line(s, (60, 90, 170), (3, 2), (3, 0))
+    else:
+        pygame.draw.line(s, (60, 90, 170), (2, 3), (1, 4))
+    return s
+
+
+def _firefly(bright):
+    s = _canvas(3, 3)
+    glow = (200, 255, 120, 255 if bright else 160)
+    for p in ((1, 0), (0, 1), (2, 1), (1, 2)):
+        s.set_at(p, glow[:3] + (120,))
+    s.set_at((1, 1), (255, 255, 200, 255 if bright else 200))
+    return s
+
+
+def _boar(frame):
+    s = _canvas(16, 10)
+    body = (115, 80, 55)
+    pygame.draw.ellipse(s, body, (1, 1, 12, 7))
+    pygame.draw.rect(s, shade(body, 0.9), (11, 3, 4, 4))
+    s.set_at((15, 5), (200, 140, 130))
+    s.set_at((14, 7), (240, 235, 220))
+    s.set_at((12, 3), (20, 20, 20))
+    pygame.draw.line(s, shade(body, 0.6), (2, 1), (10, 1))
+    for i, x in enumerate((3, 5, 9, 11)):
+        dy = 1 if (i + frame) % 2 else 0
+        pygame.draw.line(s, shade(body, 0.7), (x, 7), (x, 9 - dy))
+    return s
+
+
+def _wolf(frame):
+    s = _canvas(17, 10)
+    body = (205, 210, 220)
+    pygame.draw.ellipse(s, body, (2, 2, 11, 6))
+    pygame.draw.rect(s, body, (12, 1, 4, 4))
+    s.set_at((12, 0), body)
+    s.set_at((14, 0), body)
+    s.set_at((16, 3), (60, 60, 70))
+    s.set_at((14, 2), (40, 120, 200))
+    pygame.draw.line(s, shade(body, 0.8), (0, 2), (2, 4))
+    for i, x in enumerate((3, 5, 10, 12)):
+        dy = 1 if (i + frame) % 2 else 0
+        pygame.draw.line(s, shade(body, 0.75), (x, 7), (x, 9 - dy))
+    return s
+
+
+def _scorpion(frame):
+    s = _canvas(13, 7)
+    body = (200, 160, 90)
+    pygame.draw.ellipse(s, body, (3, 3, 7, 4))
+    pygame.draw.line(s, body, (3, 4), (1, 2))
+    pygame.draw.line(s, body, (1, 2), (2, 0))
+    s.set_at((3, 0), (60, 30, 20))
+    pygame.draw.line(s, shade(body, 0.85), (9, 4), (12, 3 - frame))
+    s.set_at((12, 2 - frame), shade(body, 0.6))
+    for x in (4, 6, 8):
+        s.set_at((x, 6), shade(body, 0.6))
     return s
 
 
@@ -1172,6 +1347,14 @@ class Assets:
         self.creatures["crab"] = [_flip_pair(_up(_crab((220, 70, 60), st))) for st in (0, 1)]
         self.creatures["servant_eye"] = [_flip_pair(pygame.transform.scale(_up(_eye(t)), (22, 15)))
                                          for t in (0, 1)]
+        self.creatures["bunny"] = [_flip_pair(_up(_bunny(f))) for f in (0, 1)]
+        self.creatures["penguin"] = [_flip_pair(_up(_penguin(f))) for f in (0, 1)]
+        self.creatures["bird"] = [_flip_pair(_up(_bird(u))) for u in (True, False)]
+        self.creatures["firefly"] = [_flip_pair(_up(_firefly(b))) for b in (True, False)]
+        self.creatures["boar"] = [_flip_pair(_up(_boar(f))) for f in (0, 1)]
+        self.creatures["snow_wolf"] = [_flip_pair(_up(_wolf(f))) for f in (0, 1)]
+        # the scorpion is drawn facing left, so its pair is swapped
+        self.creatures["scorpion"] = [_flip_pair(_up(_scorpion(f)))[::-1] for f in (0, 1)]
 
         npc_looks = {
             "guide": dict(skin=(240, 200, 160), hair=(90, 60, 30), shirt=(70, 140, 70), pants=(90, 70, 50)),

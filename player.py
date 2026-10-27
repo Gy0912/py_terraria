@@ -3,10 +3,10 @@ import math
 import pygame
 
 from settings import *
-from tiles import T
+from tiles import T, STICKY
 from items import ITEMS, STARTING_ITEMS
 from inventory import Inventory
-from physics import move_x, move_y, rect_solid, rect_liquid, point_in_liquid
+from physics import move_x, move_y, rect_solid, rect_liquid, point_in_liquid, rect_touches
 
 TS = TILE_SIZE
 _WATER, _LAVA = T["water"], T["lava"]
@@ -33,6 +33,8 @@ class Player:
         self.max_hp = 100
         self.base_max_mana = 40
         self.spawn_point = None   # bed anchor, if any
+        self.cards = []           # card collection used as the deck in NPC card games
+        self.journal = set()      # lore note ids that have been read
         self.facing = 1
         self.anim = 0.0
         self.recompute_stats()
@@ -42,7 +44,8 @@ class Player:
 
     def recompute_stats(self):
         st = {"defense": 0, "speed": 0.0, "jump": 0.0, "double_jump": 0, "breath": 1, "lava_immune": 0,
-              "fall_immune": 0, "regen": 0, "magnet": 1.0, "luck": 0.0, "mana": 0, "light": 0, "kb_immune": 0}
+              "fall_immune": 0, "regen": 0, "magnet": 1.0, "luck": 0.0, "mana": 0, "light": 0, "kb_immune": 0,
+              "mining": 0.0}
         for slot, name in self.equip.items():
             if not name:
                 continue
@@ -168,6 +171,7 @@ class Player:
         self.in_lava = rect_liquid(world, self.x, self.y + self.H * 0.3, self.W, self.H * 0.7, _LAVA)
         self.head_under = point_in_liquid(world, self.x + self.W / 2, self.y + 8, _WATER)
         swimming = self.in_water or self.in_lava
+        webbed = rect_touches(world, self.x, self.y, self.W, self.H, STICKY)
 
         move = (1 if keys[pygame.K_d] or keys[pygame.K_RIGHT] else 0) - \
                (1 if keys[pygame.K_a] or keys[pygame.K_LEFT] else 0)
@@ -214,6 +218,10 @@ class Player:
             g *= 0.35
             max_fall = 3.0
         self.vy = min(self.vy + g, max_fall)
+        if webbed:
+            self.vx *= 0.35
+            self.vy = max(-1.5, min(self.vy, 1.0))
+            self.fall_peak = self.y
 
         # move x, stepping up single-tile ledges
         old_x = self.x

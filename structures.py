@@ -1,7 +1,9 @@
 """Special structures planned once per world from the seed.
 
 Each structure is a blueprint of tiles, walls and multi-tile objects that chunk
-generation stamps into whichever chunks it overlaps.
+generation stamps into whichever chunks it overlaps. Every type has its own count
+range (pyramids are rare, mineshafts common), many are ruined (missing blocks,
+broken walls, cobwebs) and some hold lore tablets and locked treasure chests.
 """
 import random
 
@@ -10,6 +12,15 @@ from tiles import T, W, TILES, AIR
 from items import ITEMS, LOOT, SPECIAL_LOOT
 
 CHEST_SLOTS = 20
+_DECAYABLE = {T[n] for n in ("wood", "stone_brick", "sandstone_brick", "snow_brick", "mud_brick",
+                             "obsidian_brick")}
+
+# how many of each structure a world gets: (min, max)
+COUNTS = {
+    "surface_cabin": (3, 5), "miner_camp": (4, 6), "watchtower": (2, 3), "mineshaft": (22, 30),
+    "underground_cabin": (25, 35), "igloo": (2, 3), "jungle_ruins": (2, 3), "sky_island": (3, 5),
+    "hell_tower": (4, 6), "temple": (1, 2),
+}
 
 
 class Structure:
@@ -19,6 +30,8 @@ class Structure:
         self.walls = {}       # (x, y) -> wall id
         self.objects = []     # (tile id, ax, ay)
         self.chests = []      # (ax, ay, slots)
+        self.locked = []      # anchors of locked gold chests
+        self.notes = []       # (x, y, note id)
         self.npc = None       # (npc kind, x, y) bound NPC waiting to be rescued
         self.bbox = None
 
@@ -53,12 +66,36 @@ class Structure:
         self.objects.append((tid, ax, ay))
         return ax, ay
 
-    def chest(self, ax, ay, loot_key, rng):
-        self.obj("chest", ax, ay)
+    def chest(self, ax, ay, loot_key, rng, locked=False):
+        self.obj("gold_chest" if locked else "chest", ax, ay)
         self.chests.append((ax, ay, roll_chest(loot_key, rng)))
+        if locked:
+            self.locked.append((ax, ay))
 
     def door(self, x, y_bottom):
         self.obj("door", x, y_bottom - 2)
+
+    def note(self, x, y, note_id):
+        self.set(x, y, "lore_note")
+        self.notes.append((x, y, note_id))
+
+    def ruin(self, rng, blocks=0.2, walls=0.35, webs=0.06):
+        """Abandoned look: knock out blocks and wall patches, hang cobwebs in open space."""
+        protected = set()
+        for tid, ax, ay in self.objects:
+            w, h = TILES[tid].size
+            for dx in range(w):
+                protected.add((ax + dx, ay + h))
+        for x, y, _ in self.notes:
+            protected.add((x, y + 1))
+        for pos, tid in list(self.tiles.items()):
+            if tid in _DECAYABLE and pos not in protected and rng.random() < blocks:
+                self.tiles[pos] = AIR
+            elif tid == AIR and rng.random() < webs:
+                self.tiles[pos] = T["cobweb"]
+        for pos in list(self.walls):
+            if rng.random() < walls:
+                del self.walls[pos]
 
     def finish(self):
         xs = [x for x, _ in self.tiles] + [x for x, _ in self.walls]
@@ -94,9 +131,9 @@ def surface_cabin(x0, floor_y, rng):
     s = Structure("surface_cabin")
     w, h = 14, 9
     x1, top = x0 + w - 1, floor_y - h + 1
-    s.rect(x0 - 1, top - 6, x1 + 1, floor_y - 1, "air")        # clear hills / trees above
+    s.rect(x0 - 1, top - 6, x1 + 1, floor_y - 1, "air")
     s.box(x0, top, x1, floor_y, "wood", "wood_wall")
-    s.rect(x0 + 1, top - 1, x1 - 1, top - 1, "wood")             # roof ridge
+    s.rect(x0 + 1, top - 1, x1 - 1, top - 1, "wood")
     s.rect(x0 + 3, top - 2, x1 - 3, top - 2, "wood")
     _foundation(s, x0, x1, floor_y)
     s.rect(x0, floor_y - 3, x0, floor_y - 1, "air")
@@ -117,13 +154,85 @@ def underground_cabin(x0, y0, rng):
     s.rect(x1, y1 - 3, x1, y1 - 1, "air")
     s.chest(x0 + 5, y1 - 2, "underground_cabin", rng)
     s.set(x0 + 2, y0 + 2, "torch")
-    s.set(x1 - 2, y0 + 2, "torch")
     if rng.random() < 0.5:
         s.obj("workbench", x0 + 2, y1 - 1)
+    if rng.random() < 0.5:
+        s.ruin(rng, 0.15, 0.4, 0.08)
     return s.finish()
 
 
-def mineshaft(x0, y0, length, rng):
+def miner_camp(x0, y0, rng, note=None):
+    """An abandoned expedition camp in a cave: platforms, a collapsed shack, a journal."""
+    s = Structure("miner_camp")
+    w, h = 24, 9
+    x1, y1 = x0 + w - 1, y0 + h - 1
+    s.rect(x0, y0, x1, y1 - 1, "air")
+    s.rect(x0, y1, x1, y1 + 1, "wood")
+    s.wall_rect(x0 + 2, y0 + 2, x0 + 10, y1 - 1, "wood_wall")
+    s.rect(x0 + 2, y0 + 2, x0 + 10, y0 + 2, "wood")
+    s.rect(x0 + 2, y0 + 3, x0 + 2, y1 - 1, "wood")
+    s.chest(x0 + 5, y1 - 2, "miner_camp", rng)
+    s.obj("workbench", x0 + 13, y1 - 1)
+    s.set(x0 + 8, y0 + 4, "torch")
+    if note:
+        s.note(x0 + 17, y1 - 1, note)
+    s.ruin(rng, 0.3, 0.5, 0.1)
+    return s.finish()
+
+
+def watchtower(x0, base_y, rng, note=None):
+    """A collapsed stone lookout: the higher, the more broken."""
+    s = Structure("watchtower")
+    x1, top = x0 + 7, base_y - 22
+    s.rect(x0 - 1, top - 4, x1 + 1, base_y - 1, "air")
+    s.box(x0, top, x1, base_y, "stone_brick", "stone_brick_wall")
+    _foundation(s, x0, x1, base_y, "stone")
+    for fy in range(base_y - 5, top + 2, -5):
+        s.rect(x0 + 1, fy, x1 - 1, fy, "stone_brick")
+        gap = x0 + 1 if (base_y - fy) // 5 % 2 else x1 - 3
+        s.rect(gap, fy, gap + 2, fy, "air")
+    s.rect(x0, base_y - 3, x0, base_y - 1, "air")
+    s.door(x0, base_y - 1)
+    s.chest(x0 + 3, base_y - 17, "watchtower", rng)
+    if note:
+        s.note(x0 + 5, base_y - 6, note)
+    s.set(x0 + 4, base_y - 3, "torch")
+    for (x, y), tid in list(s.tiles.items()):
+        height = (base_y - y) / 22
+        if tid == T["stone_brick"] and y < base_y - 15 and rng.random() < height * 0.6:
+            s.tiles[(x, y)] = AIR
+    s.ruin(rng, 0.08, 0.3, 0.05)
+    return s.finish()
+
+
+def temple(x0, y0, rng, notes=()):
+    """An ancient stone temple deep in the caverns with locked gold chests and tablets."""
+    s = Structure("temple")
+    w, h = 44, 22
+    x1, y1 = x0 + w - 1, y0 + h - 1
+    s.box(x0, y0, x1, y1, "stone_brick", "stone_brick_wall")
+    s.rect(x0 + 1, y0 + 10, x1 - 1, y0 + 11, "stone_brick")
+    for x in (x0 + 14, x0 + 29):
+        s.rect(x, y0 + 1, x + 1, y0 + 9, "stone_brick")
+        s.rect(x, y0 + 12, x + 1, y1 - 1, "stone_brick")
+        s.rect(x, y0 + 6, x + 1, y0 + 9, "air")
+        s.rect(x, y1 - 4, x + 1, y1 - 1, "air")
+    s.rect(x0 + 6, y0 + 10, x0 + 8, y0 + 11, "air")
+    s.rect(x1 - 8, y0 + 10, x1 - 6, y0 + 11, "air")
+    s.rect(x0, y1 - 4, x0, y1 - 1, "air")
+    s.rect(x1, y0 + 6, x1, y0 + 9, "air")
+    s.chest(x0 + 20, y0 + 8, "temple", rng, locked=True)
+    s.chest(x0 + 36, y1 - 2, "temple", rng, locked=True)
+    for i, note in enumerate(notes):
+        s.note(x0 + 5 + i * 30, y1 - 1, note)
+    for x in range(x0 + 4, x1 - 2, 8):
+        s.set(x, y0 + 3, "torch")
+        s.set(x, y0 + 14, "torch")
+    s.ruin(rng, 0.06, 0.15, 0.06)
+    return s.finish()
+
+
+def mineshaft(x0, y0, length, rng, note=None):
     s = Structure("mineshaft")
     x1 = x0 + length
     s.rect(x0, y0, x1, y0 + 3, "air")
@@ -133,12 +242,25 @@ def mineshaft(x0, y0, length, rng):
         s.wall_rect(x, y0, x, y0 + 3, "wood_wall")
         if (x - x0) % 14 == 0:
             s.set(x, y0 + 1, "torch")
+    # a vertical shaft down to a lower branch
+    if length > 60 and rng.random() < 0.7:
+        sx = rng.randint(x0 + 10, x1 - 10)
+        depth = rng.randint(14, 26)
+        s.rect(sx, y0 + 4, sx + 2, y0 + 4 + depth, "air")
+        by = y0 + depth + 1
+        bx0 = sx - rng.randint(10, 25)
+        s.rect(bx0, by, sx + 2, by + 3, "air")
+        s.rect(bx0, by + 4, sx + 2, by + 4, "wood")
+        s.set(bx0 + 2, by + 1, "torch")
     end = x1 - 3 if rng.random() < 0.5 else x0 + 2
     s.chest(end, y0 + 2, "mineshaft", rng)
+    if note:
+        s.note((x0 + x1) // 2, y0 + 3, note)
+    s.ruin(rng, 0.15, 0.2, 0.05)
     return s.finish()
 
 
-def pyramid(cx, base_y, rng, with_npc):
+def pyramid(cx, base_y, rng, with_npc, note=None):
     s = Structure("pyramid")
     for k in range(21):
         span = 20 - k
@@ -146,7 +268,6 @@ def pyramid(cx, base_y, rng, with_npc):
         if span > 1:
             s.wall_rect(cx - span + 1, base_y - k, cx + span - 1, base_y - k, "sandstone_brick_wall")
     s.rect(cx - 20, base_y + 1, cx + 20, base_y + 3, "sandstone_brick")
-    # entrance corridor, shaft and treasure chamber
     s.rect(cx - 19, base_y - 3, cx, base_y - 1, "air")
     s.rect(cx - 2, base_y - 1, cx + 2, base_y + 13, "sandstone_brick")
     s.rect(cx - 1, base_y - 3, cx + 1, base_y + 8, "air")
@@ -158,6 +279,8 @@ def pyramid(cx, base_y, rng, with_npc):
     s.set(cx + 7, base_y + 9, "torch")
     if with_npc:
         s.npc = ("traveler", cx - 5, base_y + 12)
+    if note:
+        s.note(cx - 3, base_y + 12, note)
     return s.finish()
 
 
@@ -186,13 +309,13 @@ def jungle_ruins(x0, floor_y, rng):
     for x in range(x0, x1 + 1):
         for y in range(top, floor_y + 1):
             edge = x in (x0, x1) or y in (top, floor_y) or (y == top + 5 and x not in range(x0 + 8, x0 + 12))
-            if edge and (y == floor_y or rng.random() > 0.25):
+            if edge:
                 s.set(x, y, "mud_brick")
-            if rng.random() < 0.75:
-                s.wall(x, y, "mud_brick_wall")
+            s.wall(x, y, "mud_brick_wall")
     s.rect(x0, floor_y - 3, x0, floor_y - 1, "air")
-    s.chest(x1 - 4, top + 3, "jungle_ruins", rng)
+    s.chest(x1 - 4, top + 3, "jungle_ruins", rng, locked=True)
     s.set(x0 + 4, top + 7, "torch")
+    s.ruin(rng, 0.25, 0.3, 0.08)
     return s.finish()
 
 
@@ -210,6 +333,9 @@ def shipwreck(cx, floor_y, rng):
     s.rect(cx - 3, deck, cx + 3, deck, "water")
     s.rect(cx + 2, deck - 9, cx + 2, deck - 1, "wood")
     s.chest(cx - 3, deck + 4, "shipwreck", rng)
+    for pos, tid in list(s.tiles.items()):
+        if tid == T["wood"] and pos[1] < floor_y and rng.random() < 0.18:
+            s.tiles[pos] = T["water"]
     return s.finish()
 
 
@@ -230,7 +356,7 @@ def sky_island(cx, cy, rng):
     return s.finish()
 
 
-def hell_tower(cx, base_y, rng):
+def hell_tower(cx, base_y, rng, note=None):
     s = Structure("hell_tower")
     x0, x1 = cx - 6, cx + 6
     top = base_y - 26
@@ -245,7 +371,9 @@ def hell_tower(cx, base_y, rng):
     s.rect(x0, base_y - 3, x0, base_y - 1, "air")
     s.rect(x1, base_y - 3, x1, base_y - 1, "air")
     s.chest(cx - 1, base_y - 22, "hell_tower", rng)
-    s.set(cx - 3, base_y - 4, "torch")
+    if note:
+        s.note(cx + 3, base_y - 21, note)
+    s.ruin(rng, 0.1, 0.3, 0.04)
     return s.finish()
 
 
@@ -270,6 +398,7 @@ def plan_structures(gen):
     cb = gen.column_biome
     out = []
     taken = []
+    counts = {k: rng.randint(*v) for k, v in COUNTS.items()}
 
     def free(x0, y0, x1, y1, margin=6):
         for a in taken:
@@ -281,47 +410,94 @@ def plan_structures(gen):
         if st and free(*st.bbox):
             out.append(st)
             taken.append(st.bbox)
+            return True
+        return False
 
     def flat_floor(x0, w):
         hs = surf[x0:x0 + w]
         return max(hs) if max(hs) - min(hs) <= 4 else None
 
+    def place(kind, n, attempt, tries=40):
+        placed = 0
+        for _ in range(n * tries):
+            if placed >= n:
+                break
+            if add(attempt(placed)):
+                placed += 1
+        return placed
+
     spawn = WORLD_W // 2
-    for a, b in _runs(cb, "forest"):
-        for _ in range(max(1, (b - a) // 500)):
-            for _try in range(30):
-                x0 = rng.randint(a + 10, max(a + 11, b - 25))
-                if abs(x0 - spawn) < 60:
-                    continue
-                floor = flat_floor(x0, 14)
-                if floor is not None:
-                    add(surface_cabin(x0, floor, rng))
-                    break
-    for i, (a, b) in enumerate(_runs(cb, "desert")):
+    forest = _runs(cb, "forest")
+
+    def cabin(_):
+        a, b = rng.choice(forest)
+        x0 = rng.randint(a + 10, max(a + 11, b - 25))
+        floor = flat_floor(x0, 14)
+        return surface_cabin(x0, floor, rng) if floor is not None and abs(x0 - spawn) > 60 else None
+
+    place("surface_cabin", counts["surface_cabin"], cabin)
+
+    def tower(i):
+        runs = forest + _runs(cb, "snow")
+        a, b = rng.choice(runs)
+        x0 = rng.randint(a + 10, max(a + 11, b - 20))
+        floor = flat_floor(x0, 8)
+        if floor is None or abs(x0 - spawn) < 80:
+            return None
+        return watchtower(x0, floor, rng, note=3 if i == 0 else None)
+
+    place("watchtower", counts["watchtower"], tower)
+
+    for i, (a, b) in enumerate(_runs(cb, "desert")[:2]):
         cx = (a + b) // 2 + rng.randint(-20, 20)
-        add(pyramid(cx, surf[cx] + 2, rng, with_npc=(i == 0)))
-    for a, b in _runs(cb, "snow"):
-        for _ in range(2):
-            cx = rng.randint(a + 20, b - 20)
-            add(igloo(cx, surf[cx], rng))
-    for a, b in _runs(cb, "jungle"):
-        for _ in range(2):
-            x0 = rng.randint(a + 20, b - 40)
-            add(jungle_ruins(x0, max(surf[x0:x0 + 20]), rng))
-    for a, b in _runs(cb, "ocean"):
+        add(pyramid(cx, surf[cx] + 2, rng, with_npc=(i == 0), note=8 if i == 0 else None))
+
+    def snow_igloo(_):
+        a, b = rng.choice(_runs(cb, "snow"))
+        cx = rng.randint(a + 20, b - 20)
+        return igloo(cx, surf[cx], rng)
+
+    place("igloo", counts["igloo"], snow_igloo)
+
+    def ruins(_):
+        a, b = rng.choice(_runs(cb, "jungle"))
+        x0 = rng.randint(a + 20, b - 40)
+        return jungle_ruins(x0, max(surf[x0:x0 + 20]), rng)
+
+    place("jungle_ruins", counts["jungle_ruins"], ruins)
+    for a, b in _runs(cb, "ocean")[:2]:
         cx = (a + b) // 2 + rng.randint(-60, 60)
         add(shipwreck(cx, surf[cx], rng))
-    for _ in range(5):
-        cx = rng.randint(700, WORLD_W - 700)
-        add(sky_island(cx, rng.randint(SKY_ISLAND_TOP, SKY_ISLAND_BOTTOM), rng))
-    for _ in range(45):
+
+    place("sky_island", counts["sky_island"], lambda _: sky_island(
+        rng.randint(700, WORLD_W - 700), rng.randint(SKY_ISLAND_TOP, SKY_ISLAND_BOTTOM), rng))
+
+    def temple_at(i):
+        x0 = rng.randint(400, WORLD_W - 450)
+        return temple(x0, rng.randint(CAVERN_LINE + 80, HELL_LINE - 120), rng, notes=(5, 6) if i == 0 else ())
+
+    place("temple", counts["temple"], temple_at)
+
+    def camp(i):
+        x0 = rng.randint(250, WORLD_W - 280)
+        y0 = rng.randint(surf[x0] + 40, CAVERN_LINE + 100)
+        return miner_camp(x0, y0, rng, note=(1, 2)[i] if i < 2 else None)
+
+    place("miner_camp", counts["miner_camp"], camp)
+
+    def shaft(i):
+        x0 = rng.randint(200, WORLD_W - 330)
+        deep = i == 0
+        y0 = rng.randint(CAVERN_LINE, CAVERN_LINE + 200) if deep else rng.randint(surf[x0] + 40, CAVERN_LINE + 150)
+        return mineshaft(x0, y0, rng.randint(40, 120), rng, note=4 if deep else None)
+
+    place("mineshaft", counts["mineshaft"], shaft)
+
+    def cabin_ug(_):
         x0 = rng.randint(200, WORLD_W - 220)
-        y0 = rng.randint(surf[x0] + 60, HELL_LINE - 80)
-        add(underground_cabin(x0, y0, rng))
-    for _ in range(12):
-        x0 = rng.randint(200, WORLD_W - 300)
-        add(mineshaft(x0, rng.randint(surf[x0] + 50, CAVERN_LINE + 150), rng.randint(50, 90), rng))
-    for _ in range(7):
-        cx = rng.randint(300, WORLD_W - 300)
-        add(hell_tower(cx, LAVA_LINE - 3, rng))
+        return underground_cabin(x0, rng.randint(surf[x0] + 60, HELL_LINE - 80), rng)
+
+    place("underground_cabin", counts["underground_cabin"], cabin_ug)
+    place("hell_tower", counts["hell_tower"], lambda i: hell_tower(
+        rng.randint(300, WORLD_W - 300), LAVA_LINE - 3, rng, note=7 if i == 0 else None))
     return out

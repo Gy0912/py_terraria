@@ -1,6 +1,7 @@
 """Axis-separated tile collision shared by the player, NPCs, creatures and dropped items.
 
-`creature=True` uses the creature solidity table, where closed doors also block.
+`creature=True` uses the creature solidity table, where closed doors also block;
+`creature="flyer"` additionally treats liquids as walls (bats and birds never dive).
 """
 import math
 
@@ -17,7 +18,10 @@ def _span(x, y, w, h):
 
 
 def rect_solid(world, x, y, w, h, creature=False):
-    test = world.blocks_creature if creature else world.is_solid
+    if creature == "flyer":
+        test = world.blocks_flyer
+    else:
+        test = world.blocks_creature if creature else world.is_solid
     left, right, top, bottom = _span(x, y, w, h)
     for tx in range(left, right + 1):
         for ty in range(top, bottom + 1):

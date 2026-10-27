@@ -67,7 +67,8 @@ class ItemDrop:
 
 
 class Projectile:
-    def __init__(self, kind, x, y, vx, vy, damage, knockback):
+    def __init__(self, kind, x, y, vx, vy, damage, knockback, owner=None):
+        self.owner = owner      # None for the player, otherwise the NPC that fired it
         self.kind = kind
         self.x, self.y = x, y
         self.vx, self.vy = vx, vy
@@ -99,7 +100,7 @@ class Projectile:
         h = self.size / 2
         if rect_solid(world, self.x - h, self.y - h, self.size, self.size):
             self.alive = False
-            if self.kind == "arrow" and random.random() < 0.3:
+            if self.kind == "arrow" and self.owner is None and random.random() < 0.3:
                 game.drops.append(ItemDrop("wood_arrow", 1, self.x - self.vx, self.y - self.vy, 0, 0))
             else:
                 game.burst(self.x, self.y, (255, 150, 40) if self.kind == "bolt" else (170, 140, 100), 6)

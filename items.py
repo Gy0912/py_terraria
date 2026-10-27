@@ -74,14 +74,14 @@ _ITEMS = [
     _block("gold_ore", "金矿", (235, 200, 60), value=6),
     _block("hellstone", "狱石", (190, 60, 30), value=8),
     _block("obsidian", "黑曜石", (55, 40, 80), value=3, desc="水与岩浆相遇时形成"),
-    _block("stone_brick", "石砖", (140, 140, 150)),
-    _block("sandstone_brick", "砂岩砖", (210, 170, 110)),
-    _block("snow_brick", "雪砖", (215, 230, 245)),
-    _block("mud_brick", "泥砖", (120, 85, 80)),
-    _block("obsidian_brick", "黑曜石砖", (70, 50, 95)),
+    _block("stone_brick", "石砖", (140, 140, 150), value=1),
+    _block("sandstone_brick", "砂岩砖", (210, 170, 110), value=1),
+    _block("snow_brick", "雪砖", (215, 230, 245), value=1),
+    _block("mud_brick", "泥砖", (120, 85, 80), value=1),
+    _block("obsidian_brick", "黑曜石砖", (70, 50, 95), value=6),
     _block("torch", "火把", (255, 200, 80), desc="照亮周围；房屋需要光源"),
     _block("workbench", "工作台", (150, 100, 55), max_stack=99, desc="制作站"),
-    _block("furnace", "熔炉", (115, 105, 105), max_stack=99, desc="冶炼矿石、烧制砖块"),
+    _block("furnace", "熔炉", (115, 105, 105), max_stack=99, desc="右键打开：放入原料和燃料，慢慢烧炼"),
     _block("anvil", "铁砧", (90, 90, 100), max_stack=99, desc="锻造工具、武器与盔甲"),
     _block("chest", "箱子", (160, 110, 50), max_stack=99, desc="右键打开，可存放 20 组物品"),
     _block("bed", "床", (170, 60, 60), max_stack=99, desc="右键设为重生点；夜晚可睡觉跳过；NPC 住房必需"),
@@ -89,8 +89,6 @@ _ITEMS = [
     _block("pylon", "传送晶塔", (90, 220, 230), max_stack=99, value=40, desc="右键在晶塔之间传送"),
     _block("shipping_bin", "出货箱", (150, 110, 70), max_stack=99,
            desc="放入的物品会在第二天早上 6:00 自动售出"),
-    _block("auto_smelter", "自动熔炉", (150, 140, 140), max_stack=99, value=150,
-           desc="放入矿石后会自动冶炼成锭"),
     # walls
     _wall("dirt_wall", "泥土墙", (100, 70, 48)),
     _wall("stone_wall", "石墙", (90, 90, 95)),
@@ -108,11 +106,22 @@ _ITEMS = [
     ItemDef("gel", "凝胶", "material", "gel", (80, 150, 255), value=1, desc="史莱姆掉落"),
     ItemDef("lens", "晶状体", "material", "lens", (240, 240, 240), value=5, desc="恶魔眼掉落"),
     ItemDef("bone", "骨头", "material", "bone", (230, 225, 200), value=2, desc="骷髅掉落"),
-    ItemDef("copper_bar", "铜锭", "material", "bar", _COPPER),
-    ItemDef("iron_bar", "铁锭", "material", "bar", _IRON),
-    ItemDef("gold_bar", "金锭", "material", "bar", _GOLD),
-    ItemDef("hellstone_bar", "狱石锭", "material", "bar", (230, 80, 30)),
+    ItemDef("copper_bar", "铜锭", "material", "bar", _COPPER, value=8, desc="熔炉烧炼铜矿得到"),
+    ItemDef("iron_bar", "铁锭", "material", "bar", _IRON, value=12, desc="熔炉烧炼铁矿得到"),
+    ItemDef("gold_bar", "金锭", "material", "bar", _GOLD, value=25, desc="熔炉烧炼金矿得到"),
+    ItemDef("hellstone_bar", "狱石锭", "material", "bar", (230, 80, 30), value=30, desc="熔炉烧炼狱石得到"),
     ItemDef("coin", "金币", "coin", "coin", (250, 210, 60), max_stack=9999, value=1, desc="货币"),
+    ItemDef("coal", "煤炭", "material", "coal", (40, 40, 46), value=1, desc="熔炉燃料，可烧炼 4 次"),
+    ItemDef("lockpick", "撬锁器", "material", "lockpick", (190, 190, 200), max_stack=50, value=4,
+            desc="右键上锁的藏宝金箱时使用，失败会折断"),
+    ItemDef("treasure_map", "藏宝图", "map", "map", (220, 200, 150), max_stack=10, use_time=30, value=60,
+            desc="使用后在地图上标出一处埋藏的宝藏"),
+    ItemDef("card_pack", "卡包", "cardpack", "cardpack", (120, 80, 200), max_stack=20, use_time=20,
+            value=30, desc="使用后获得 3 张随机牌（用于和 NPC 打牌）"),
+    ItemDef("raw_meat", "生肉", "consumable", "meat", (200, 90, 90), max_stack=99, heal=5, use_time=30,
+            value=2, desc="放进熔炉可以烤熟"),
+    ItemDef("cooked_meat", "烤肉", "consumable", "meat", (170, 100, 50), max_stack=99, heal=30, use_time=30,
+            value=8, desc="恢复 30 生命"),
     # consumables
     ItemDef("mushroom", "蘑菇", "consumable", "mushroom", (220, 60, 60), max_stack=99, heal=15,
             use_time=30, value=2, desc="恢复 15 生命"),
@@ -203,6 +212,8 @@ _ITEMS = [
          "防御 +4，免疫击退", 150),
     _acc("slime_boots", "弹力胶鞋", "boots", (80, 140, 240), {"fall_immune": 1, "jump": 0.15},
          "免疫跌落伤害，跳跃 +15%", 150),
+    _acc("expedition_badge", "远征队徽章", "badge", (200, 170, 90), {"mining": 0.25},
+         "挖掘速度 +25%。灰烬矿业远征队的遗物", 200),
 ]
 
 ITEMS = {it.name: it for it in _ITEMS}
@@ -219,6 +230,7 @@ class Recipe:
 RECIPES = [
     Recipe("workbench", 1, {"wood": 10}),
     Recipe("torch", 3, {"wood": 1, "gel": 1}),
+    Recipe("torch", 4, {"wood": 1, "coal": 1}),
     Recipe("wooden_sword", 1, {"wood": 7}, "workbench"),
     Recipe("wooden_bow", 1, {"wood": 10}, "workbench"),
     Recipe("wooden_hammer", 1, {"wood": 8}, "workbench"),
@@ -234,15 +246,8 @@ RECIPES = [
     Recipe("snow_brick", 1, {"snow": 2}, "workbench"),
     Recipe("furnace", 1, {"stone": 20, "wood": 4, "torch": 3}, "workbench"),
     Recipe("anvil", 1, {"iron_bar": 5}, "workbench"),
-    Recipe("copper_bar", 1, {"copper_ore": 3}, "furnace"),
-    Recipe("iron_bar", 1, {"iron_ore": 3}, "furnace"),
-    Recipe("gold_bar", 1, {"gold_ore": 4}, "furnace"),
-    Recipe("hellstone_bar", 1, {"hellstone": 3}, "furnace"),
-    Recipe("stone_brick", 1, {"stone": 2}, "furnace"),
-    Recipe("sandstone_brick", 1, {"sandstone": 2}, "furnace"),
-    Recipe("mud_brick", 1, {"mud": 2}, "furnace"),
-    Recipe("obsidian_brick", 1, {"obsidian": 2}, "furnace"),
     Recipe("bucket", 1, {"iron_bar": 3}, "anvil"),
+    Recipe("lockpick", 3, {"iron_bar": 1}, "anvil"),
     Recipe("copper_pickaxe", 1, {"copper_bar": 12, "wood": 4}, "anvil"),
     Recipe("iron_pickaxe", 1, {"iron_bar": 10, "wood": 3}, "anvil"),
     Recipe("iron_axe", 1, {"iron_bar": 9, "wood": 3}, "anvil"),
@@ -254,7 +259,6 @@ RECIPES = [
     Recipe("molten_pickaxe", 1, {"hellstone_bar": 15}, "anvil"),
     Recipe("fiery_greatsword", 1, {"hellstone_bar": 20}, "anvil"),
     Recipe("obsidian_charm", 1, {"obsidian": 20, "hellstone_bar": 3}, "anvil"),
-    Recipe("auto_smelter", 1, {"furnace": 1, "iron_bar": 10, "gold_bar": 2}, "anvil"),
     Recipe("copper_helmet", 1, {"copper_bar": 10}, "anvil"),
     Recipe("copper_chainmail", 1, {"copper_bar": 15}, "anvil"),
     Recipe("copper_greaves", 1, {"copper_bar": 12}, "anvil"),
@@ -272,17 +276,25 @@ for _base in ("dirt", "stone", "sand", "snow", "mud", "wood", "stone_brick", "sa
               "snow_brick", "mud_brick", "obsidian_brick"):
     RECIPES.append(Recipe(_base + "_wall", 4, {_base: 1}, "workbench"))
 
-STATION_NAMES = {"workbench": "工作台", "furnace": "熔炉", "anvil": "铁砧"}
+STATION_NAMES = {"workbench": "工作台", "anvil": "铁砧"}
 
 STARTING_ITEMS = [("copper_pickaxe", 1), ("copper_axe", 1), ("copper_sword", 1), ("torch", 15),
                   ("wooden_hammer", 1)]
 
-# ores the auto smelter understands: ore -> (amount, bar)
-SMELTING = {}
-for _r in RECIPES:
-    if _r.station == "furnace" and _r.result.endswith("_bar"):
-        (_ore, _n), = _r.ingredients.items()
-        SMELTING[_ore] = (_n, _r.result)
+# furnace smelting: input -> (amount consumed, output, frames per batch)
+SMELTING = {
+    "copper_ore": (3, "copper_bar", 150),
+    "iron_ore": (3, "iron_bar", 180),
+    "gold_ore": (4, "gold_bar", 210),
+    "hellstone": (3, "hellstone_bar", 300),
+    "stone": (2, "stone_brick", 90),
+    "sandstone": (2, "sandstone_brick", 90),
+    "mud": (2, "mud_brick", 90),
+    "obsidian": (2, "obsidian_brick", 150),
+    "raw_meat": (1, "cooked_meat", 120),
+}
+# fuel item -> number of batches it burns for
+FUEL = {"wood": 1, "coal": 4, "cactus": 1}
 
 
 def _compute_values():
@@ -308,34 +320,48 @@ _compute_values()
 
 LOOT = {
     "surface_cabin": [("coin", 10, 30, 1.0), ("healing_potion", 1, 3, 0.7), ("torch", 5, 15, 0.8),
-                      ("wood_arrow", 20, 40, 0.5), ("mushroom", 2, 5, 0.5)],
+                      ("wood_arrow", 20, 40, 0.5), ("card_pack", 1, 1, 0.4)],
     "underground_cabin": [("coin", 20, 60, 1.0), ("healing_potion", 2, 4, 0.8), ("iron_bar", 4, 10, 0.5),
-                          ("gold_bar", 3, 6, 0.3), ("mana_crystal", 1, 1, 0.2), ("bucket", 1, 1, 0.3)],
-    "mineshaft": [("coin", 15, 40, 1.0), ("copper_bar", 6, 12, 0.6), ("iron_bar", 6, 12, 0.6),
-                  ("gold_ore", 8, 20, 0.4), ("torch", 10, 25, 1.0)],
+                          ("gold_bar", 3, 6, 0.3), ("mana_crystal", 1, 1, 0.2), ("lockpick", 2, 4, 0.4)],
+    "mineshaft": [("coin", 15, 40, 1.0), ("coal", 10, 25, 0.8), ("iron_ore", 10, 20, 0.6),
+                  ("gold_ore", 8, 20, 0.4), ("torch", 10, 25, 1.0), ("treasure_map", 1, 1, 0.15)],
+    "miner_camp": [("coin", 20, 50, 1.0), ("coal", 15, 30, 0.8), ("cooked_meat", 2, 5, 0.6),
+                   ("lockpick", 2, 5, 0.6), ("treasure_map", 1, 1, 0.3)],
+    "watchtower": [("coin", 30, 70, 1.0), ("wood_arrow", 30, 60, 0.8), ("treasure_map", 1, 1, 0.4),
+                   ("card_pack", 1, 2, 0.5)],
+    "temple": [("coin", 150, 300, 1.0), ("gold_bar", 10, 20, 0.8), ("life_crystal", 1, 2, 0.6),
+               ("card_pack", 1, 3, 0.8)],
     "pyramid": [("coin", 80, 150, 1.0), ("gold_bar", 8, 15, 0.8), ("healing_potion", 3, 5, 1.0)],
     "igloo": [("coin", 20, 50, 1.0), ("ice", 20, 40, 0.5), ("healing_potion", 2, 3, 0.8)],
-    "jungle_ruins": [("coin", 30, 80, 1.0), ("mud_brick", 20, 40, 0.5), ("life_crystal", 1, 1, 0.4)],
-    "shipwreck": [("coin", 40, 90, 1.0), ("healing_potion", 2, 4, 0.8), ("wood", 20, 40, 0.6)],
+    "jungle_ruins": [("coin", 30, 80, 1.0), ("mud_brick", 20, 40, 0.5), ("life_crystal", 1, 1, 0.4),
+                     ("card_pack", 1, 1, 0.5)],
+    "shipwreck": [("coin", 40, 90, 1.0), ("healing_potion", 2, 4, 0.8), ("treasure_map", 1, 1, 0.6)],
     "sky_island": [("coin", 60, 120, 1.0), ("cloud", 20, 50, 0.8), ("mana_crystal", 1, 1, 0.5)],
     "hell_tower": [("coin", 100, 200, 1.0), ("hellstone_bar", 5, 12, 0.8), ("obsidian", 10, 25, 0.6),
                    ("healing_potion", 3, 6, 1.0)],
+    "treasure": [("coin", 150, 400, 1.0), ("gold_bar", 5, 12, 0.7), ("card_pack", 1, 2, 0.8),
+                 ("life_crystal", 1, 1, 0.3)],
 }
 # one guaranteed special item per structure chest
 SPECIAL_LOOT = {
     "surface_cabin": ["wooden_bow", "magnet_ring", "mining_helmet"],
     "underground_cabin": ["hermes_boots", "cloud_bottle", "regen_band", "magic_mirror"],
     "mineshaft": ["mining_helmet", "iron_hammer", "bucket"],
+    "miner_camp": ["mining_helmet", "iron_hammer", "lucky_charm"],
+    "watchtower": ["wooden_bow", "magnet_ring", "hermes_boots"],
+    "temple": ["star_band", "lucky_charm", "magic_staff", "cloud_bottle"],
     "pyramid": ["magic_mirror", "star_band", "hermes_boots"],
     "igloo": ["hermes_boots", "regen_band"],
     "jungle_ruins": ["star_band", "regen_band"],
     "shipwreck": ["diving_mask"],
     "sky_island": ["cloud_bottle", "lucky_charm"],
     "hell_tower": ["lucky_charm", "fiery_greatsword", "obsidian_charm"],
+    "treasure": ["hermes_boots", "cloud_bottle", "regen_band", "star_band", "lucky_charm", "magnet_ring"],
 }
+# "card:<name>" entries add a card to the player's collection instead of an item
 BAG_LOOT = {
     "eye": [("coin", 150, 250, 1.0), ("healing_potion", 3, 5, 1.0), ("gold_ore", 20, 40, 1.0),
-            ("eye_shield", 1, 1, 1.0), ("lens", 3, 6, 1.0)],
+            ("eye_shield", 1, 1, 1.0), ("lens", 3, 6, 1.0), ("card:血瞳巨眼", 1, 1, 1.0)],
     "king_slime": [("coin", 100, 200, 1.0), ("gel", 30, 60, 1.0), ("slime_boots", 1, 1, 1.0),
-                   ("healing_potion", 2, 4, 1.0)],
+                   ("healing_potion", 2, 4, 1.0), ("card:史莱姆之王", 1, 1, 1.0)],
 }

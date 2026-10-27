@@ -420,8 +420,15 @@ class InventoryUI:
         draw_text(surf, text, rect.center, 14, center=True)
         self._button_rects.append((rect, action))
 
+    def _is_furnace(self):
+        from tiles import TILES
+        return bool(self.container) and TILES[self.player.world.objects.get(self.container[0], 0)].kind == "furnace"
+
     def _container_rect(self, i):
         rect = self.lower_rect()
+        if self._is_furnace():
+            x, y = ((rect.x + 60, rect.y + 16), (rect.x + 60, rect.y + 84), (rect.x + 260, rect.y + 50))[i]
+            return pygame.Rect(x, y, SLOT, SLOT)
         row, col = divmod(i, COLS)
         return pygame.Rect(rect.x + 4 + col * (SLOT + PAD), rect.y + 4 + row * (SLOT + PAD), SLOT, SLOT)
 
@@ -429,11 +436,16 @@ class InventoryUI:
         anchor, slots, title = self.container
         rect = self._panel_title(surf, title)
         hover = None
+        furnace = self._is_furnace()
+        labels = ("原料", "燃料", "产出") if furnace else ()
         for i, stack in enumerate(slots):
             r = self._container_rect(i)
-            self._draw_slot(surf, r, stack)
+            self._draw_slot(surf, r, stack, label=labels[i] if furnace else None)
             if stack and r.collidepoint(mouse) and self.cursor is None:
                 hover = item_tooltip(stack[0], stack[1]) + [("Shift+左键 取出", (200, 220, 255))]
+        if furnace:
+            self._draw_furnace_state(surf, rect, anchor, slots)
+            return hover
         by = rect.bottom - 30
         self._button(surf, pygame.Rect(rect.x + 6, by, 110, 24), "全部存入", self._deposit_all)
         self._button(surf, pygame.Rect(rect.x + 124, by, 110, 24), "全部取出", self._loot_all)
@@ -442,6 +454,27 @@ class InventoryUI:
             draw_text(surf, hint, (rect.x + 244, by + 3), 13, (220, 220, 220))
         return hover
 
+    def _draw_furnace_state(self, surf, rect, anchor, slots):
+        from items import SMELTING, FUEL
+        progress, fuel_left = self.player.world.furnaces.get(anchor, [0, 0])
+        src = slots[0][0] if slots[0] else None
+        total = SMELTING[src][2] if src in SMELTING else 1
+        bar = pygame.Rect(rect.x + 120, rect.y + 64, 120, 12)
+        pygame.draw.rect(surf, (40, 40, 60), bar, border_radius=3)
+        pygame.draw.rect(surf, (255, 170, 60), (bar.x, bar.y, int(bar.w * min(1, progress / total)), bar.h),
+                         border_radius=3)
+        pygame.draw.rect(surf, (220, 220, 255), bar, 1, border_radius=3)
+        draw_text(surf, f"燃料剩余 {fuel_left} 次" if fuel_left else "无燃料", (rect.x + 120, rect.y + 90), 13,
+                  (255, 200, 120) if fuel_left else (200, 200, 200))
+        if src in SMELTING:
+            need, out, _ = SMELTING[src]
+            info = f"{need} {ITEMS[src].display} → 1 {ITEMS[out].display}"
+        else:
+            info = "可烧炼：矿石→锭、石块/砂岩/泥浆/黑曜石→砖、生肉→烤肉"
+        draw_text(surf, info, (rect.x + 12, rect.bottom - 28), 13, (220, 220, 220))
+        draw_text(surf, "燃料：" + "、".join(f"{ITEMS[n].display}({v}次)" for n, v in FUEL.items()),
+                  (rect.x + 320, rect.y + 16), 13, (220, 200, 160))
+
     def container_hint(self):
         from tiles import TILES
         anchor, slots, _ = self.container
@@ -449,8 +482,6 @@ class InventoryUI:
         if name == "shipping_bin":
             total = sum(ITEMS[s[0]].value * s[1] for s in slots if s)
             return f"早上 6:00 自动售出，预计 {total} 金币"
-        if name == "auto_smelter":
-            return "放入矿石，每 4 秒自动冶炼一次"
         return ""
 
     def _draw_shop(self, surf, mouse):

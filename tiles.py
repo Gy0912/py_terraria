@@ -34,6 +34,7 @@ _DEFS = [
     TileDef("mud", "泥浆", hp=60, drop="mud", color=(92, 68, 70)),
     TileDef("jungle_grass", "丛林草", hp=60, drop="mud", color=(110, 200, 40)),
     TileDef("ash", "灰烬", hp=80, drop="ash", color=(78, 74, 80)),
+    TileDef("coal_ore", "煤矿", hp=90, drop="coal", color=(45, 45, 52)),
     TileDef("copper_ore", "铜矿", hp=110, drop="copper_ore", color=(205, 120, 60)),
     TileDef("iron_ore", "铁矿", hp=140, drop="iron_ore", color=(180, 155, 140)),
     TileDef("gold_ore", "金矿", hp=180, min_power=35, drop="gold_ore", color=(235, 200, 60)),
@@ -55,6 +56,8 @@ _DEFS = [
     TileDef("torch", "火把", solid=False, hp=1, tool="any", drop="torch", color=(255, 200, 80),
             light=(9, 1.0), support="side"),
     TileDef("mushroom", "蘑菇", solid=False, hp=1, tool="any", drop="mushroom", color=(220, 60, 60)),
+    TileDef("cobweb", "蛛网", solid=False, hp=5, tool="any", color=(225, 225, 230)),
+    TileDef("lore_note", "剧情石板", solid=False, hp=0, tool="none", color=(170, 160, 120)),
     TileDef("water", "水", solid=False, hp=0, tool="none", liquid=True, color=(40, 100, 210)),
     TileDef("lava", "岩浆", solid=False, hp=0, tool="none", liquid=True, color=(240, 100, 20),
             light=(5, 0.9)),
@@ -62,10 +65,12 @@ _DEFS = [
     TileDef("workbench", "工作台", solid=False, hp=30, tool="any", drop="workbench", color=(150, 100, 55),
             station=True, support="below", size=(2, 1)),
     TileDef("furnace", "熔炉", solid=False, hp=60, tool="any", drop="furnace", color=(115, 105, 105),
-            station=True, support="below", size=(3, 2), light=(3, 0.5)),
+            support="below", size=(3, 2), kind="furnace", light=(3, 0.5)),
     TileDef("anvil", "铁砧", solid=False, hp=60, tool="any", drop="anvil", color=(90, 90, 100),
             station=True, support="below", size=(2, 1)),
     TileDef("chest", "箱子", solid=False, hp=40, tool="any", drop="chest", color=(160, 110, 50),
+            support="below", size=(2, 2), kind="container"),
+    TileDef("gold_chest", "藏宝金箱", solid=False, hp=80, tool="any", drop="chest", color=(230, 190, 60),
             support="below", size=(2, 2), kind="container"),
     TileDef("bed", "床", solid=False, hp=30, tool="any", drop="bed", color=(170, 60, 60),
             support="below", size=(4, 2), kind="bed"),
@@ -79,8 +84,6 @@ _DEFS = [
             light=(6, 0.8), support="below", size=(2, 3), kind="pylon"),
     TileDef("shipping_bin", "出货箱", solid=False, hp=40, tool="any", drop="shipping_bin",
             color=(150, 110, 70), support="below", size=(2, 2), kind="container"),
-    TileDef("auto_smelter", "自动熔炉", solid=False, hp=60, tool="any", drop="auto_smelter",
-            color=(150, 140, 140), support="below", size=(3, 2), kind="container", light=(4, 0.6)),
 ]
 
 TILES = []
@@ -94,6 +97,8 @@ AIR = T["air"]
 SOLID = [d.solid for d in TILES]
 LIQUID = [d.liquid for d in TILES]
 BLOCKS_CREATURES = [d.solid or d.blocks_creatures for d in TILES]
+BLOCKS_FLYERS = [b or d.liquid for b, d in zip(BLOCKS_CREATURES, TILES)]   # bats & birds won't dive
+STICKY = {T["cobweb"]}
 EMITS_LIGHT = [d.light is not None for d in TILES]
 IS_OBJECT = [d.size != (1, 1) for d in TILES]
 TREE_PARTS = {T["tree"], T["leaves"], T["jungle_leaves"], T["boreal_leaves"], T["cactus"]}

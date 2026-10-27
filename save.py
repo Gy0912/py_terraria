@@ -75,14 +75,19 @@ def save_game(game):
             "containers": [[ax, ay, slots] for (ax, ay), slots in world.containers.items()],
             "flags": world.flags,
             "pending_npcs": [list(n) for n in world.pending_npcs],
+            "locked": [list(a) for a in world.locked],
+            "furnaces": [[ax, ay, state] for (ax, ay), state in world.furnaces.items()],
         },
         "player": {
             "x": p.x, "y": p.y, "hp": p.hp, "max_hp": p.max_hp, "mana": p.mana,
             "base_max_mana": p.base_max_mana, "inventory": p.inventory.slots, "equip": p.equip,
             "spawn_point": list(p.spawn_point) if p.spawn_point else None,
+            "cards": p.cards, "journal": sorted(p.journal),
         },
+        "quests": {"active": game.quests.active, "offers": game.quests.offers,
+                   "completed": game.quests.completed},
         "npcs": [{"kind": n.kind, "x": n.x, "y": n.y, "home": list(n.home) if n.home else None,
-                  "bound": n.bound} for n in game.npcs.npcs],
+                  "bound": n.bound, "hp": n.hp} for n in game.npcs.npcs],
         "game": {"ticks": game.ticks, "day_count": game.day_count, "slime_rain": game.creatures.slime_rain,
                  "slime_kills": game.slime_kills},
     }
@@ -116,3 +121,7 @@ def apply_world(world, data):
             world._register_object(T[name], ax, ay)
     world.flags = w["flags"]
     world.pending_npcs = [tuple(n) for n in w["pending_npcs"]]
+    if "locked" in w:
+        world.locked = {tuple(a) for a in w["locked"]}
+    for ax, ay, state in w.get("furnaces", []):
+        world.furnaces[(ax, ay)] = state

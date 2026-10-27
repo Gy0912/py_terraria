@@ -16,6 +16,7 @@ _DIRT, _GRASS, _STONE = T["dirt"], T["grass"], T["stone"]
 _SAND, _SANDSTONE, _SNOW, _ICE = T["sand"], T["sandstone"], T["snow"], T["ice"]
 _MUD, _JGRASS, _ASH = T["mud"], T["jungle_grass"], T["ash"]
 _COPPER, _IRON, _GOLD, _HELLSTONE = T["copper_ore"], T["iron_ore"], T["gold_ore"], T["hellstone"]
+_COAL = T["coal_ore"]
 _WATER, _LAVA = T["water"], T["lava"]
 _TREE, _CACTUS, _MUSHROOM = T["tree"], T["cactus"], T["mushroom"]
 _POT, _CRYSTAL = T["pot"], T["life_crystal"]
@@ -260,14 +261,21 @@ class WorldGen:
             return _IRON
         if depth < 520 and noise2(x * 0.18, y * 0.18, seed + 101) > 0.83:
             return _COPPER
+        if depth < 360 and noise2(x * 0.15, y * 0.15, seed + 505) > 0.84:
+            return _COAL
         return base
 
     def base_wall(self, x, y):
+        """Natural walls come in patches with gaps; they are not a solid backdrop."""
         s = self.surface[x]
         depth = y - s
+        seed = self.seed
         if 2 <= depth <= self.wall_depth[x]:
-            return _NATURAL_WALL[self.column_biome[x]]
-        if depth > self.wall_depth[x] and y < HELL_LINE and noise2(x * 0.03, y * 0.03, self.seed + 71) > 0.62:
+            fade = 1 - max(0, depth - self.wall_depth[x] + 12) / 12
+            if fbm2(x * 0.07, y * 0.07, seed + 72, 3) * fade > 0.42:
+                return _NATURAL_WALL[self.column_biome[x]]
+            return 0
+        if depth > self.wall_depth[x] and y < HELL_LINE and noise2(x * 0.03, y * 0.03, seed + 71) > 0.62:
             return _STONE_WALL
         return 0
 

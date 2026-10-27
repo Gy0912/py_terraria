@@ -45,8 +45,9 @@ from tiles import T, W, AIR, TILES  # noqa: E402
 import save  # noqa: E402
 from game import Game  # noqa: E402
 import actions  # noqa: E402
-from npc import check_house  # noqa: E402
+from npc import check_house, NPC_TYPES  # noqa: E402
 from physics import rect_solid  # noqa: E402
+from creatures import Creature as Creature_cls  # noqa: E402
 
 TMP_SAVES = tempfile.mkdtemp(prefix="pyterraria_saves_")
 save.SAVE_DIR = TMP_SAVES
@@ -394,19 +395,34 @@ def main():
     g.on_dawn()
     check("shipping bin sold items at dawn", p.inventory.count("coin") > coins and not w.containers[bin_anchor][0])
 
-    # ---- automation: auto smelter ----
+    # ---- 8. furnace: input + fuel, smelts over time; bars are not craftable directly ----
+    from items import RECIPES, SMELTING
+    check("metal bars have no crafting recipe", not any(r.result.endswith("_bar") for r in RECIPES))
     sm_x = bed2[0] + 12
     sy = ground_under(g, sm_x)
     for x in range(sm_x, sm_x + 3):
         for y in range(sy - 3, sy):
             w.set_tile(x, y, AIR)
         w.set_tile(x, sy, T["stone"])
-    w.place_object(T["auto_smelter"], sm_x, sy - 2)
-    w.containers[(sm_x, sy - 2)][0] = ["iron_ore", 9]
-    for _ in range(3):
-        g._run_smelters()
-    bars = sum(s[1] for s in w.containers[(sm_x, sy - 2)] if s and s[0] == "iron_bar")
-    check("auto smelter turns ore into bars", bars == 3, f"{bars} iron bars")
+    w.place_object(T["furnace"], sm_x, sy - 2)
+    furnace = w.containers[(sm_x, sy - 2)]
+    furnace[0] = ["iron_ore", 9]
+    for _ in range(SMELTING["iron_ore"][2] * 2):
+        g._update_furnaces()
+    check("furnace does nothing without fuel", furnace[2] is None)
+    furnace[1] = ["wood", 1]
+    for _ in range(SMELTING["iron_ore"][2] * 3 + 5):
+        g._update_furnaces()
+    check("one wood smelts exactly one batch", furnace[2] == ["iron_bar", 1], str(furnace[2]))
+    furnace[1] = ["coal", 1]
+    for _ in range(SMELTING["iron_ore"][2] * 3 + 5):
+        g._update_furnaces()
+    check("coal smelts the remaining ore", furnace[2] == ["iron_bar", 3] and furnace[0] is None, str(furnace))
+    place_player(g, sm_x - 2, sy)
+    g.inv_ui.open_container((sm_x, sy - 2), furnace, "熔炉")
+    fake.mouse = (300, 300)
+    shot(g, "16_furnace.png")
+    g.inv_ui.close(g)
 
     # ---- teleport via pylons ----
     w.place_object(T["pylon"], bed1[0] - 6, floor1 - 3)
@@ -426,7 +442,8 @@ def main():
     # ---- 9. structures and chests ----
     kinds = {s.kind for s in w.gen.structures}
     check("all structure types planned", kinds >= {"surface_cabin", "underground_cabin", "mineshaft", "pyramid",
-                                                     "igloo", "jungle_ruins", "shipwreck", "sky_island", "hell_tower"},
+                                                     "igloo", "jungle_ruins", "shipwreck", "sky_island", "hell_tower",
+                                                     "miner_camp", "watchtower", "temple"},
           ", ".join(sorted(kinds)))
     pyr = next(s for s in w.gen.structures if s.kind == "pyramid" and s.npc)
     ax, ay, slots = pyr.chests[0]
@@ -451,6 +468,287 @@ def main():
     place_player(g, tower.chests[0][0], tower.chests[0][1] + 2)
     step(g, 10)
     shot(g, "11_hell_tower.png")
+
+    # ---- 10. structure counts, ruins, lore and locked chests ----
+    from collections import Counter
+    from structures import COUNTS
+    counts = Counter(s.kind for s in w.gen.structures)
+    check("pyramids are rare (at most 2)", counts["pyramid"] <= 2, str(counts["pyramid"]))
+    check("mineshafts are common (20+)", counts["mineshaft"] >= 20, str(counts["mineshaft"]))
+    check("counts stay within each type's range",
+          all(counts[k] <= hi for k, (lo, hi) in COUNTS.items()), str(dict(counts)))
+    camp = next(s for s in w.gen.structures if s.kind == "miner_camp")
+    webs = sum(1 for t in camp.tiles.values() if t == T["cobweb"])
+    check("abandoned camps look ruined (cobwebs, broken walls)", webs > 0 and len(camp.walls) < 9 * 10, f"{webs} webs")
+    from story import TOTAL_NOTES
+    check("every lore note is placed once", sorted(w.notes.values()) == list(range(1, TOTAL_NOTES + 1)))
+    note_pos = next(pos for pos, nid in w.notes.items() if nid == 1)
+    place_player(g, note_pos[0] - 1, note_pos[1] + 1)
+    step(g, 20)
+    shot(g, "17_miner_camp.png")
+    actions.interact(g, *note_pos)
+    check("reading a lore tablet adds it to the journal", 1 in p.journal and g.panel is not None)
+    shot(g, "18_lore_note.png")
+    g.panel = None
+    for pos, nid in w.notes.items():
+        g.read_note(*pos)
+        g.panel = None
+    check("collecting all notes rewards the expedition badge", p.inventory.count("expedition_badge") == 1)
+    from panels import JournalPanel
+    g.panel = JournalPanel(g)
+    shot(g, "19_journal.png")
+    g.panel = None
+
+    temple_st = next(s for s in w.gen.structures if s.kind == "temple")
+    gold = temple_st.locked[0]
+    check("temple gold chests are locked", gold in w.locked)
+    place_player(g, gold[0] - 2, gold[1] + 2)
+    step(g, 20)
+    shot(g, "20_temple.png")
+    p.inventory.remove("lockpick", p.inventory.count("lockpick"))
+    actions.interact(g, *gold)
+    check("locked chest needs a lockpick", g.panel is None and gold in w.locked)
+    p.inventory.add("lockpick", 3)
+    actions.interact(g, *gold)
+    from panels import LockpickPanel
+    lp = g.panel
+    check("lockpick mini-game opens", isinstance(lp, LockpickPanel))
+    shot(g, "21_lockpick.png")
+    space = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE)
+    lp.pos = (lp.zone[0] + lp.zone[1] + 30) % lp.bar.w if lp.zone[0] + lp.zone[1] + 30 < lp.bar.w else 0
+    lp.handle_event(space)
+    check("a missed pin snaps a lockpick", p.inventory.count("lockpick") == 2 and lp.pin == 0)
+    for _ in range(3):
+        lp.pos = lp.zone[0] + lp.zone[1] / 2
+        if lp.handle_event(space):
+            g.panel = None
+    check("three good pins unlock the chest", gold not in w.locked and g.inv_ui.container is not None)
+    g.inv_ui.close(g)
+
+    # ---- treasure map ----
+    select(g, "treasure_map", 1)
+    fake.buttons[0] = True
+    step(g, 2)
+    fake.buttons[0] = False
+    tr = w.flags.get("treasure")
+    check("treasure map buries a chest and marks it", tr is not None and w.objects.get(tuple(tr)) == T["chest"])
+    shot(g, "22_treasure_hud.png")
+    g.open_chest(tuple(tr), "箱子")
+    check("opening the buried chest completes the hunt", "treasure" not in w.flags)
+    g.inv_ui.close(g)
+
+    # ---- requests (quests) ----
+    guide = g.npcs.by_kind("guide")
+    g.quests.offers["guide"] = {"giver": "guide", "type": "kill", "target": "zombie", "count": 2, "progress": 0,
+                                "coins": 50, "extras": [("card_pack", 1)]}
+    from panels import DialogPanel
+    g.panel = DialogPanel(g, guide)
+    check("NPC dialog offers a request", any(a == "quest" for _, a in g.panel.buttons))
+    g.dialog_action(g.panel, "quest")
+    g.dialog_action(g.panel, "accept")
+    check("request accepted", g.quests.from_giver("guide") is not None)
+    for _ in range(2):
+        z = Creature_cls("zombie", p.x + 40, p.y, w)
+        z.alive = False
+        g.on_creature_hit(z, 1)
+    coins = p.inventory.count("coin")
+    g.dialog_action(g.panel, "turn_in")
+    check("kill request completes and pays out", g.quests.from_giver("guide") is None
+          and p.inventory.count("coin") == coins + 50 and p.inventory.count("card_pack") >= 1)
+    g.panel = None
+
+    # ---- 6. housing query tool (no item needed) ----
+    fake.keys = set()
+    place_player(g, bed1[0] + 2, floor1)
+    step(g, 5)
+    ev = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_j)
+    pygame.event.post(ev)
+    g.events()
+    check("J toggles the housing tool", g.house_mode)
+    g.query_room(((bed1[0] + 5) * TS - g.camera.x, (floor1 - 4) * TS - g.camera.y))
+    check("tool reports a valid house", g.room_report and g.room_report.r["ok"])
+    shot(g, "23_housing_tool_ok.png")
+    g.query_room(((w.spawn_tx - 20) * TS - g.camera.x, (ground_under(g, w.spawn_tx - 20) - 3) * TS - g.camera.y))
+    check("tool explains why open ground is not a house", not g.room_report.r["ok"]
+          and "不封闭" in g.room_report.r["reasons"][0], g.room_report.r["reasons"][0])
+    g.toggle_house_mode()
+
+    # ---- 7. natural walls are patchy ----
+    tx0 = w.spawn_tx + 400
+    cells = [(x, y) for x in range(tx0, tx0 + 120) for y in range(w.surface_at(x) + 3, w.surface_at(x) + 25)]
+    walled = sum(1 for x, y in cells if w.get_wall(x, y)) / len(cells)
+    check("natural walls cover only part of the shallow underground", 0.3 < walled < 0.95, f"{walled:.0%}")
+
+    # ---- 9. ore textures stand out from stone ----
+    def avg(surf):
+        px = [surf.get_at((x, y)) for x in range(16) for y in range(16)]
+        return [sum(c[i] for c in px) / len(px) for i in range(3)]
+    stone = avg(g.assets.tile_tex[T["stone"]][0])
+    iron = g.assets.tile_tex[T["iron_ore"]][0]
+    bright = sum(1 for x in range(16) for y in range(16)
+                 if sum(abs(iron.get_at((x, y))[i] - stone[i]) for i in range(3)) > 120)
+    check("iron ore has large distinct nuggets", bright >= 24, f"{bright} distinct pixels")
+
+    # ---- 2 / 4 / 5. creatures: factions, spawn odds, flyers avoid water ----
+    from creatures import CREATURE_TYPES, passive_table
+    factions = Counter(t.get("faction", "hostile") for t in CREATURE_TYPES.values())
+    check("world has friendly and neutral creatures", factions["friendly"] >= 3 and factions["neutral"] >= 3,
+          str(dict(factions)))
+    place_player(g, w.spawn_tx - 30, ground_under(g, w.spawn_tx - 30))
+    g.creatures.creatures = []
+    bunny = Creature_cls("bunny", p.x, p.y + p.H - 14, w)
+    g.creatures.creatures.append(bunny)
+    hp0 = p.hp
+    p.invuln = 0
+    step(g, 10)
+    check("friendly critters never hurt the player", p.hp >= hp0)
+    boar = Creature_cls("boar", p.x + 60, p.y + p.H - 20, w)
+    g.creatures.creatures = [boar]
+    check("neutral boar starts peaceful", not boar.hostile)
+    boar.hit(5, p.center()[0], 2, attacker=p)
+    check("hitting a neutral animal provokes it", boar.hostile)
+    wolves = [Creature_cls("snow_wolf", p.x + 80 + i * 40, p.y + p.H - 20, w) for i in range(3)]
+    g.creatures.creatures = wolves
+    g.on_creature_hit(wolves[0], wolves[0].hit(5, p.center()[0], 2, attacker=p))
+    check("wolves defend their pack", all(wf.provoked for wf in wolves))
+    g.creatures.creatures = []
+    g.creatures.slime_rain = False      # a random slime rain may have started at an earlier dawn
+    ctx_day = g.creatures.spawn_context(p, False, [])
+    ctx_night = g.creatures.spawn_context(p, True, [])
+    ctx_town = g.creatures.spawn_context(p, False, g.npcs.npcs + [g.npcs.by_kind("guide")] * 2)
+    check("spawn odds differ by time of day", ctx_night[1] > ctx_day[1], f"{ctx_day[1]:.2f} vs {ctx_night[1]:.2f}")
+    p_y = p.y
+    p.y = (CAVERN_LINE + 60) * TS
+    ctx_cave = g.creatures.spawn_context(p, False, [])
+    p.y = p_y
+    check("spawn odds differ by layer", abs(ctx_cave[1] - ctx_day[1]) > 0.05, f"cavern {ctx_cave[1]:.2f}")
+    check("towns reduce spawn odds", ctx_town[1] < ctx_day[1] * 0.5)
+    g.creatures.roll_timer = 1
+    g.creatures.creatures = []
+    spawned = 0
+    for _ in range(FPS * 60):
+        before = g.creatures.count(True)
+        g.creatures._spawn_roll(p, False, [])
+        spawned += max(0, g.creatures.count(True) - before)
+    check("daytime surface spawns are slow (a few per minute)", spawned <= 10, f"{spawned} in 60 s")
+    check("passive animals appear on the surface", g.creatures.count(False) > 0,
+          ", ".join(sorted({c.kind for c in g.creatures.creatures if c.faction != 'hostile'})))
+    shot(g, "24_animals.png")
+    g.creatures.creatures = []
+    # a bat chasing a target under water must stay out of it
+    wx0 = w.spawn_tx - 140
+    wf = ground_under(g, wx0)
+    for x in range(wx0 - 1, wx0 + 9):
+        for y in range(wf - 14, wf + 6):
+            w.set_tile(x, y, T["stone"] if x in (wx0 - 1, wx0 + 8) or y == wf + 5 else AIR)
+    for x in range(wx0, wx0 + 8):
+        for y in range(wf - 1, wf + 5):
+            w.place_liquid(x, y, T["water"])
+    bat = Creature_cls("cave_bat", (wx0 + 3) * TS, (wf - 10) * TS, w)
+    for _ in range(300):
+        bat.update(p, [p])
+        p.x, p.y = (wx0 + 3) * TS, (wf + 2) * TS
+    check("bats never fly into water", not any(w.get_tile(x, y) == T["water"] for x in range(
+        int(bat.x) // TS, int(bat.x + bat.w - 1) // TS + 1) for y in range(int(bat.y) // TS, int(bat.y + bat.h - 1) // TS + 1)))
+
+    # ---- 3. NPCs fight hostile creatures and can be hurt ----
+    place_player(g, bed1[0] + 2, floor1)
+    guide = g.npcs.by_kind("guide")
+    guide.x, guide.y = (bed1[0] + 1) * TS, (floor1 - 3) * TS
+    zombie = Creature_cls("zombie", guide.x + 70, guide.y, w)    # inside the same room
+    g.creatures.creatures = [zombie]
+    hp_z = zombie.hp
+    for _ in range(240):
+        p.invuln = 30
+        step(g)
+    check("NPC attacks hostile creatures on its own", zombie.hp < hp_z or not zombie.alive, f"zombie hp {zombie.hp}")
+    dps_npc = {k: v["attack"][1] * FPS / v["attack"][2] for k, v in NPC_TYPES.items() if v["attack"][0] != "heal"}
+    from items import ITEMS as IT
+    dps_player = IT["copper_sword"].damage * FPS / IT["copper_sword"].use_time
+    check("NPC damage per second stays below the player's", max(dps_npc.values()) < dps_player,
+          f"max NPC {max(dps_npc.values()):.1f} vs player {dps_player:.1f}")
+    guide.invuln = 0
+    hp_g = guide.hp
+    g.creatures.creatures = [Creature_cls("zombie", guide.x, guide.y, w)]
+    step(g, 3)
+    check("hostile creatures hurt NPCs", guide.hp < hp_g, f"{hp_g}->{guide.hp}")
+    shot(g, "25_npc_fight.png")
+    guide.hp = 1
+    guide.invuln = 0
+    guide.hurt(50)
+    g.creatures.creatures = []
+    step(g, 2)
+    check("NPC can die", g.npcs.by_kind("guide") is None)
+    g.npcs.check_arrivals()
+    check("dead NPC does not return the same day", g.npcs.by_kind("guide") is None)
+    g.day_count += 1
+    g.npcs.check_arrivals()
+    check("dead NPC returns the next day", g.npcs.by_kind("guide") is not None)
+
+    # ---- 1. card game with NPCs ----
+    from cards import CardGame, NPC_DECKS, STARTER, CardPanel
+    results = Counter()
+    import random as _r
+    for i in range(200):
+        m = CardGame(STARTER, NPC_DECKS["merchant"])
+        for _ in range(200):
+            if m.winner:
+                break
+            if m.turn == "p":
+                hand = m.sides["p"].hand
+                if hand and _r.random() < 0.8:
+                    m.play("p", _r.randrange(len(hand)))
+                else:
+                    m.pass_round("p")
+            else:
+                m.ai_move()
+        results[m.winner] += 1
+    check("200 simulated card matches all finish", sum(results.values()) == 200 and None not in results,
+          str(dict(results)))
+    check("card games unlock with 3 housed NPCs", g.cards_unlocked() == (len(g.npcs.housed()) >= 3),
+          f"{len(g.npcs.housed())} housed")
+    g.world.flags.pop("cards_given", None)
+    p.cards = []
+    while not g.cards_unlocked():
+        b, _ = build_house(g, w.spawn_tx + 84 + 16 * len(g.npcs.housed()))
+        g.npcs.check_arrivals()
+        if len(g.npcs.housed()) < 3 and not g.npcs.by_kind("nurse"):
+            p.max_hp = 140
+    g.ticks += FPS * 5 - g.ticks % (FPS * 5) - 1    # update() advances time by one frame first
+    g.update()
+    check("starter deck is given when cards unlock", len(p.cards) == len(STARTER))
+    merchant = g.npcs.by_kind("merchant")
+    g.panel = DialogPanel(g, merchant)
+    check("dialog shows the card option", any(a == "cards" for _, a in g.panel.buttons))
+    g.dialog_action(g.panel, "cards")
+    cp = g.panel
+    check("card table opens", isinstance(cp, CardPanel))
+    coins = p.inventory.count("coin")
+    bet_btn = next(b for b, amount in cp.bet_buttons if amount == 20)
+    cp.handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=bet_btn.rect.center))
+    shot(g, "26_cards.png")
+    for _ in range(600):
+        if cp.state == "over":
+            break
+        if cp.match.turn == "p":
+            rects = cp._hand_rects()
+            if rects:
+                cp.handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=rects[0].center))
+            else:
+                cp.handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=cp.pass_btn.rect.center))
+        else:
+            g.update()
+    expected = {"p": coins + 20, "o": coins - 20, "draw": coins}[cp.match.winner]
+    check("card match settles the bet", cp.state == "over" and p.inventory.count("coin") == expected,
+          f"winner {cp.match.winner}")
+    shot(g, "27_cards_result.png")
+    g.panel = None
+    select(g, "card_pack", 1)
+    n_cards = len(p.cards)
+    fake.buttons[0] = True
+    step(g, 2)
+    fake.buttons[0] = False
+    check("card packs add three cards", len(p.cards) == n_cards + 3)
 
     # ---- 7. bosses ----
     place_player(g, w.spawn_tx - 30, ground_under(g, w.spawn_tx - 30))
@@ -557,6 +855,10 @@ def main():
     check("load restores objects", g2.world.objects.get(bed1) == T["bed"])
     check("load restores NPCs", sorted(n.kind for n in g2.npcs.npcs) == npcs_before, ", ".join(npcs_before))
     check("load restores boss flags", g2.world.flags.get("eye_defeated"))
+    check("load restores card collection and journal",
+          sorted(g2.player.cards) == sorted(p.cards) and g2.player.journal == p.journal)
+    check("load restores unlocked chests and furnace state",
+          gold not in g2.world.locked and g2.world.furnaces.get((sm_x, sy - 2)) == w.furnaces.get((sm_x, sy - 2)))
 
     # world selection screen: screenshot the slot list, then press "返回"
     import menus

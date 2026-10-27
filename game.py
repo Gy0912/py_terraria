@@ -6,15 +6,15 @@ import pygame
 
 from settings import *
 from tiles import T, TILES
-from items import ITEMS, SMELTING
+from items import ITEMS, SMELTING, FUEL
 from world import World
 from player import Player
 from camera import Camera
 from background import Background
 from creatures import CreatureManager
 from bosses import BossManager
-from npc import NPCManager, NPC, check_house
-from inventory import InventoryUI, add_to_slots
+from npc import NPCManager, NPC, check_house, check_room
+from inventory import InventoryUI, add_to_slots, EQUIP_X, SLOT, PAD
 from entities import ItemDrop, Particle, FloatingText
 from physics import rect_solid
 from textures import Assets
@@ -23,16 +23,20 @@ from lighting import Lighting
 from minimap import Minimap
 from healthbar import HealthBar
 from manabar import ManaBar
-from panels import DialogPanel, TeleportPanel
-from ui import get_font, draw_text, Button
+from panels import DialogPanel, TeleportPanel, LockpickPanel, TextPanel, JournalPanel, RoomReport
+from cards import CardPanel, NPC_DECKS, STARTER, open_pack
+from quests import QuestBook, quest_text
+from story import NOTES, TOTAL_NOTES
+from structures import roll_chest
+from ui import get_font, draw_text, Button, tooltip
 import actions
 import menus
 import save
 
-STATION_IDS = {T["workbench"]: "workbench", T["furnace"]: "furnace", T["anvil"]: "anvil"}
-_SHIPPING, _SMELTER = T["shipping_bin"], T["auto_smelter"]
-CONTROLS = ("A/D 移动  空格 跳跃(可二段跳)  左键 使用  右键 交互/对话  1-0/滚轮 切换  E 背包  H 治疗  "
-            "M 小地图  Esc 暂停")
+STATION_IDS = {T["workbench"]: "workbench", T["anvil"]: "anvil"}
+_SHIPPING = T["shipping_bin"]
+CONTROLS = ("A/D 移动  空格 跳跃  左键 使用  右键 交互/对话  1-0 切换  E 背包  J 房屋检测  L 日志  "
+            "H 治疗  M 小地图  Esc 暂停")
 
 
 class Game:
@@ -139,6 +143,9 @@ class Game:
         self.slime_kills = 0
         self.state = "playing"
         self.panel = None
+        self.quests = QuestBook()
+        self.house_mode = False
+        self.room_report = None
         self.sleep_timer = 0
         self.autosave_timer = AUTOSAVE_SECONDS * FPS
         self.mouse_blocked = False
@@ -160,11 +167,18 @@ class Game:
         self.playtime = data["meta"]["playtime"]
         pd = data["player"]
         p = self.player
-        p.inventory.slots = [s if s else None for s in pd["inventory"]]
-        p.equip.update(pd["equip"])
+        # items removed in later versions (e.g. the old auto smelter) are dropped silently
+        p.inventory.slots = [s if s and s[0] in ITEMS else None for s in pd["inventory"]]
+        p.equip.update({k: v if v in ITEMS else None for k, v in pd["equip"].items()})
         p.max_hp = pd["max_hp"]
         p.base_max_mana = pd["base_max_mana"]
         p.spawn_point = tuple(pd["spawn_point"]) if pd["spawn_point"] else None
+        p.cards = list(pd.get("cards", []))
+        p.journal = set(pd.get("journal", []))
+        qd = data.get("quests", {})
+        self.quests.active = qd.get("active", [])
+        self.quests.offers = qd.get("offers", {})
+        self.quests.completed = qd.get("completed", 0)
         p.recompute_stats()
         p.x, p.y = pd["x"], pd["y"]
         p.hp, p.mana = pd["hp"], min(pd["mana"], p.max_mana)
@@ -173,6 +187,7 @@ class Game:
         for nd in data["npcs"]:
             n = NPC(nd["kind"], nd["x"], nd["y"], bound=nd["bound"])
             n.home = tuple(nd["home"]) if nd["home"] else None
+            n.hp = nd.get("hp", n.max_hp)
             self.npcs.npcs.append(n)
         gd = data["game"]
         self.ticks = gd["ticks"]
@@ -224,6 +239,7 @@ class Game:
 
     def on_dawn(self):
         self.day_count += 1
+        self.quests.new_day()
         total = items = 0
         for anchor, tid in list(self.world.objects.items()):
             if tid != _SHIPPING:
@@ -279,7 +295,8 @@ class Game:
                 self._death_event(event)
                 continue
             if self.panel:
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE \
+                        and not isinstance(self.panel, CardPanel):
                     self.panel = None
                 elif self.panel.handle_event(event):
                     self.panel = None
@@ -287,10 +304,17 @@ class Game:
                 continue
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if self.inv_ui.open:
+                    if self.house_mode:
+                        self.house_mode = False
+                    elif self.inv_ui.open:
                         self.inv_ui.close(self)
                     else:
                         self.state = "paused"
+                elif event.key == pygame.K_j:
+                    self.toggle_house_mode()
+                elif event.key == pygame.K_l:
+                    self.inv_ui.close(self)
+                    self.panel = JournalPanel(self)
                 elif event.key in (pygame.K_e, pygame.K_TAB):
                     if self.inv_ui.open:
                         self.inv_ui.close(self)
@@ -305,7 +329,13 @@ class Game:
             elif event.type == pygame.MOUSEWHEEL:
                 self.inv_ui.handle_wheel(event.y, pygame.mouse.get_pos())
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
-                if self.inv_ui.over_ui(event.pos):
+                if event.button == 1 and self.house_button().collidepoint(event.pos):
+                    self.toggle_house_mode()
+                    self.mouse_blocked = True
+                elif self.house_mode and event.button == 1 and not self.inv_ui.over_ui(event.pos):
+                    self.query_room(event.pos)
+                    self.mouse_blocked = True
+                elif self.inv_ui.over_ui(event.pos):
                     self.inv_ui.handle_click(event.pos, event.button, self)
                     self.mouse_blocked = True
                 elif self.inv_ui.cursor:
@@ -362,6 +392,9 @@ class Game:
         if self.sleep_timer:
             self._update_sleep()
             return
+        if self.panel is not None and getattr(self.panel, "pauses", False):
+            self.panel.update()
+            return
         self._advance_time()
         p = self.player
         keys = pygame.key.get_pressed()
@@ -384,14 +417,24 @@ class Game:
         actions.update_use(self)
 
         self.bosses.update()
-        self.creatures.update(p, self.is_night())
+        self.creatures.update(p, self.is_night(), self.npcs.npcs)
+        hostiles = [c for c in self.creatures.creatures if c.hostile]
         if p.alive:
-            for c in self.creatures.creatures:
+            for c in hostiles:
                 if c.rect().colliderect(p.rect()):
                     dealt = p.hurt(c.t["dmg"], c.center()[0])
                     if dealt:
                         self.add_text(f"-{dealt}", (255, 80, 80))
                         self.burst(*p.center(), (200, 30, 30), 6)
+                    break
+        for n in self.npcs.npcs:
+            if n.bound:
+                continue
+            for c in hostiles:
+                if c.rect().colliderect(n.rect()):
+                    dealt = n.hurt(c.t["dmg"], c.center()[0])
+                    if dealt:
+                        self.add_text(f"-{dealt}", (255, 150, 150), (n.center()[0], n.y - 10))
                     break
         self.npcs.update()
 
@@ -401,8 +444,10 @@ class Game:
                 continue
             r = pr.rect()
             for c in self.creatures.creatures:
-                if c.alive and r.colliderect(c.rect()):
-                    self.on_creature_hit(c, c.hit(pr.damage, pr.x - pr.vx, pr.knockback))
+                # NPC shots only hit hostile creatures; the player can hit anything
+                if c.alive and (pr.owner is None or c.hostile) and r.colliderect(c.rect()):
+                    attacker = pr.owner or p
+                    self.on_creature_hit(c, c.hit(pr.damage, pr.x - pr.vx, pr.knockback, attacker=attacker))
                     pr.alive = False
                     break
         self.projectiles = [pr for pr in self.projectiles if pr.alive]
@@ -425,8 +470,16 @@ class Game:
         self.world.tick_damage()
         if self.ticks % 15 == 0:
             self.inv_ui.stations = self.nearby_stations()
-        if self.ticks % 240 == 0:
-            self._run_smelters()
+        self._update_furnaces()
+        if self.room_report:
+            self.room_report.life -= 1
+            if self.room_report.life <= 0:
+                self.room_report = None
+        if self.ticks % (FPS * 5) == 0 and self.cards_unlocked() and not self.world.flags.get("cards_given"):
+            self.world.flags["cards_given"] = True
+            if not p.cards:
+                p.cards.extend(STARTER)
+            self.announce("镇上热闹起来了！NPC 送了你一副入门牌组，对话时可以邀请他们打牌", (200, 170, 255))
         if self.inv_ui.container and self.inv_ui.container[0] not in self.world.objects:
             self.inv_ui.close(self)
 
@@ -477,24 +530,41 @@ class Game:
                     d.alive = False
         self.drops = [d for d in self.drops if d.alive][-400:]
 
-    def _run_smelters(self):
-        """Automation: every auto smelter turns one batch of ore into a bar."""
-        for anchor, tid in self.world.objects.items():
-            if tid != _SMELTER:
-                continue
-            slots = self.world.containers.get(anchor)
+    def _update_furnaces(self):
+        """Furnaces smelt slowly: slot 0 input, slot 1 fuel, slot 2 output."""
+        world = self.world
+        for anchor, state in world.furnaces.items():
+            slots = world.containers.get(anchor)
             if not slots:
                 continue
-            for i, s in enumerate(slots):
-                if s and s[0] in SMELTING and s[1] >= SMELTING[s[0]][0]:
-                    need, bar = SMELTING[s[0]]
-                    test = [list(x) if x else None for x in slots]
-                    test[i][1] -= need
-                    if test[i][1] == 0:
-                        test[i] = None
-                    if add_to_slots(test, bar, 1) == 0:
-                        slots[:] = test
-                        break
+            src, fuel, out = slots
+            if not src or src[0] not in SMELTING or src[1] < SMELTING[src[0]][0]:
+                state[0] = 0
+                continue
+            need, product, frames = SMELTING[src[0]]
+            if out and (out[0] != product or out[1] >= ITEMS[product].max_stack):
+                continue
+            if state[1] <= 0:
+                if not fuel or fuel[0] not in FUEL:
+                    continue
+                state[1] = FUEL[fuel[0]]
+                fuel[1] -= 1
+                if fuel[1] <= 0:
+                    slots[1] = None
+            state[0] += 1
+            if state[0] >= frames:
+                state[0] = 0
+                state[1] -= 1
+                src[1] -= need
+                if src[1] <= 0:
+                    slots[0] = None
+                if out:
+                    out[1] += 1
+                else:
+                    slots[2] = [product, 1]
+                if self.ticks % 2 == 0:
+                    ax, ay = anchor
+                    self.burst((ax + 1.5) * TILE_SIZE, ay * TILE_SIZE, (255, 170, 60), 4, speed=1.5)
 
     def nearby_stations(self):
         cx, cy = self.player.center()
@@ -571,7 +641,143 @@ class Game:
         elif action == "teleport":
             self.panel = TeleportPanel(self)
             return False
+        elif action == "quest":
+            panel.show_offer()
+        elif action == "back":
+            panel.mode = "main"
+            panel.text = npc.next_line()
+            panel.make_buttons()
+        elif action == "accept":
+            if self.quests.accept(npc.kind):
+                panel.text = "太好了，就拜托你了！"
+                self.announce(f"接受委托：{quest_text(self.quests.from_giver(npc.kind))}", (255, 240, 150))
+            else:
+                panel.text = "你手上的委托太多了，先完成几个再来吧。"
+            panel.mode = "main"
+            panel.make_buttons()
+        elif action == "turn_in":
+            q = self.quests.from_giver(npc.kind)
+            rewards = self.quests.turn_in(npc.kind, p)
+            if rewards:
+                for name, count in rewards:
+                    self.give(name, count)
+                text = "、".join(f"{ITEMS[n].display}×{c}" for n, c in rewards)
+                panel.text = f"辛苦了！这是你的报酬：{text}"
+                self.announce(f"完成委托，获得 {text}", (250, 215, 90))
+            else:
+                panel.text = f"{quest_text(q)}：进度 {self.quests.progress(q, p)}/{q['count']}"
+            panel.make_buttons()
+        elif action == "cards":
+            if len(p.cards) < 5:
+                panel.text = "你的牌太少了，至少要 5 张牌才能打。"
+            else:
+                self.panel = CardPanel(self, npc)
+                return False
         return False
+
+    # ------------------------------------------------------------------
+    # Cross-genre gameplay: cards, requests, lockpicking, treasure maps, lore
+    # ------------------------------------------------------------------
+
+    def cards_unlocked(self):
+        return len(self.npcs.housed()) >= 3
+
+    def card_decks(self):
+        return NPC_DECKS
+
+    def open_card_pack(self):
+        cards = open_pack()
+        self.player.cards.extend(cards)
+        self.add_text("获得牌：" + "、".join(cards), (200, 170, 255))
+
+    def quest_event(self, kind, target=None):
+        self.quests.event(kind, target)
+
+    def read_note(self, tx, ty):
+        p = self.player
+        nid = self.world.notes.get((tx, ty))
+        if nid is None:
+            self.panel = TextPanel("石板", ["字迹已经被风化，看不清了。"])
+            return
+        title, lines = NOTES[nid]
+        if nid not in p.journal:
+            p.journal.add(nid)
+            self.quest_event("note")
+            self.announce(f"获得日志：{title}（{len(p.journal)}/{TOTAL_NOTES}）", (255, 230, 150))
+        self.panel = TextPanel(title, lines, f"已收集日志 {len(p.journal)}/{TOTAL_NOTES}（按 L 查看）")
+        if len(p.journal) == TOTAL_NOTES and not self.world.flags.get("badge_given"):
+            self.world.flags["badge_given"] = True
+            self.give("expedition_badge", 1)
+            self.announce("你拼凑出了远征队的完整故事，获得了「远征队徽章」", (150, 255, 170))
+
+    def start_lockpick(self, anchor):
+        if self.player.inventory.count("lockpick") <= 0:
+            self.notify("这个金箱上了锁，需要撬锁器（铁砧制作或向商人购买）")
+            return
+        self.inv_ui.close(self)
+        self.panel = LockpickPanel(self, anchor)
+
+    def unlock_chest(self, anchor):
+        self.world.locked.discard(anchor)
+        self.quest_event("unlock")
+        self.announce("锁开了！", (255, 230, 140))
+        self.open_chest(anchor, "藏宝金箱")
+
+    def open_chest(self, anchor, title):
+        self.inv_ui.open_container(anchor, self.world.containers[anchor], title)
+        if self.world.flags.get("treasure") == list(anchor):
+            del self.world.flags["treasure"]
+            self.quest_event("treasure")
+            self.announce("你挖到了埋藏的宝藏！", (255, 230, 140))
+
+    def start_treasure_hunt(self):
+        """Bury a treasure chest somewhere nearby and mark it on the map."""
+        world = self.world
+        if world.flags.get("treasure"):
+            self.notify("还有一处宝藏没有挖出来")
+            return False
+        p = self.player
+        rng = random.Random()
+        ptx = int(p.center()[0]) // TILE_SIZE
+        for _ in range(30):
+            tx = max(300, min(WORLD_W - 300, ptx + rng.choice((-1, 1)) * rng.randint(120, 450)))
+            ty = world.surface_at(tx) + rng.randint(25, 60)
+            if world.layer_at(tx, ty) != "hell":
+                break
+        world.chunk(tx // CHUNK_SIZE, ty // CHUNK_SIZE)
+        world.chunk((tx + 2) // CHUNK_SIZE, (ty + 3) // CHUNK_SIZE)
+        for x in range(tx - 1, tx + 3):
+            for y in range(ty - 1, ty + 2):
+                world.set_tile(x, y, T["air"])
+            world.set_tile(x, ty + 2, T["stone"])
+        world.place_object(T["chest"], tx, ty)
+        world.containers[(tx, ty)] = roll_chest("treasure", rng)
+        world.flags["treasure"] = [tx, ty]
+        dx = tx - ptx
+        self.announce(f"藏宝图指向{'东' if dx > 0 else '西'}方约 {abs(dx)} 格的地下", (255, 230, 140))
+        return True
+
+    # ------------------------------------------------------------------
+    # Housing query tool (no item needed)
+    # ------------------------------------------------------------------
+
+    def house_button(self):
+        x = EQUIP_X + 2 * (SLOT + PAD) + 8 if self.inv_ui.open else 10 + 10 * (SLOT + PAD) + 4
+        return pygame.Rect(x, 10, SLOT, SLOT)
+
+    def toggle_house_mode(self):
+        self.house_mode = not self.house_mode
+        if not self.house_mode:
+            self.room_report = None
+
+    def query_room(self, pos):
+        tx = int(pos[0] + self.camera.x) // TILE_SIZE
+        ty = int(pos[1] + self.camera.y) // TILE_SIZE
+        result = check_room(self.world, tx, ty)
+        tenant = None
+        if result["bed"]:
+            tenant = next((n.name for n in self.npcs.npcs if n.home == result["bed"]), None)
+        self.room_report = RoomReport(result, tenant)
 
     def buy(self, name, price):
         p = self.player
@@ -608,6 +814,11 @@ class Game:
         cx, cy = c.center()
         self.add_text(str(dealt), (255, 210, 80), (cx, c.y - 10))
         self.burst(cx, cy, (200, 40, 40) if "slime" not in c.kind else (120, 200, 255), 5)
+        if c.t.get("pack") and c.provoked:
+            for other in self.creatures.creatures:
+                if other.kind == c.kind and not other.provoked and \
+                        abs(other.center()[0] - cx) < 30 * TILE_SIZE and abs(other.center()[1] - cy) < 15 * TILE_SIZE:
+                    other.provoke(c.provoker)
         if c.alive:
             return
         self.burst(cx, cy, (230, 230, 230), 14, speed=3.5)
@@ -618,8 +829,9 @@ class Game:
         for name, lo, hi, chance in c.t["drops"]:
             if random.random() < chance * luck:
                 self.drop_item_at(name, random.randint(lo, hi), cx, cy)
-        if c.kind != "servant_eye" and random.random() < 0.8:
+        if c.faction == "hostile" and c.kind != "servant_eye" and random.random() < 0.8:
             self.drop_item_at("coin", random.randint(1, max(1, c.max_hp // 8)), cx, cy)
+        self.quest_event("kill", c.kind)
         if self.creatures.slime_rain and "slime" in c.kind:
             self.slime_kills += 1
             if self.slime_kills == 40:
@@ -703,6 +915,8 @@ class Game:
         self.lighting.render(screen, self.world, cam, self.daylight(), lights)
 
         self._draw_cursor()
+        if self.room_report:
+            self.room_report.draw(screen, cam)
         for t in self.texts:
             t.draw(screen, cam)
         self._draw_hud()
@@ -772,8 +986,49 @@ class Game:
             draw_text(screen, f"治疗冷却 {p.heal_cd // FPS + 1}s", (SCREEN_WIDTH - 210, 230), 14, (255, 160, 160))
         for i, (text, color, _) in enumerate(self.banners):
             draw_text(screen, text, (SCREEN_WIDTH // 2 + 120, 74 + i * 24), 16, color, center=True)
+        self._draw_quests_and_treasure()
         self.bosses.draw_bar(screen)
+        self._draw_house_tool()
         self.inv_ui.draw(screen)
+
+    def _draw_quests_and_treasure(self):
+        screen = self.screen
+        p = self.player
+        y = 272 if not self.room_report else 252 + 22 * len(self.room_report.lines()) + 44
+        if self.quests.active:
+            draw_text(screen, "委托", (SCREEN_WIDTH - 210, y), 14, (255, 240, 150))
+            for i, q in enumerate(self.quests.active):
+                done = self.quests.ready(q, p)
+                text = f"{quest_text(q)} {self.quests.progress(q, p)}/{q['count']}"
+                draw_text(screen, ("✓ " if done else "· ") + text, (SCREEN_WIDTH - 210, y + 20 + i * 18), 13,
+                          (150, 255, 160) if done else (230, 230, 230))
+        target = self.world.flags.get("treasure")
+        if target:
+            dx = target[0] - int(p.center()[0]) // TILE_SIZE
+            dy = target[1] - int(p.center()[1]) // TILE_SIZE
+            arrow = ("→" if dx > 0 else "←") if abs(dx) > 2 else "·"
+            draw_text(screen, f"宝藏 {arrow} {abs(dx)} 格  {'↓' if dy > 0 else '↑'} {abs(dy)} 格",
+                      (SCREEN_WIDTH - 210, 250), 14, (255, 200, 90))
+            r = self.minimap.rect
+            mx = r.centerx + max(-r.w / 2 + 4, min(r.w / 2 - 4, dx * self.minimap.scale))
+            my = r.centery + max(-r.h / 2 + 4, min(r.h / 2 - 4, dy * self.minimap.scale))
+            pygame.draw.line(screen, (230, 40, 40), (mx - 4, my - 4), (mx + 4, my + 4), 2)
+            pygame.draw.line(screen, (230, 40, 40), (mx - 4, my + 4), (mx + 4, my - 4), 2)
+
+    def _draw_house_tool(self):
+        screen = self.screen
+        b = self.house_button()
+        pygame.draw.rect(screen, (60, 120, 80) if self.house_mode else (35, 45, 110), b, border_radius=4)
+        pygame.draw.rect(screen, (255, 230, 120) if self.house_mode else (150, 160, 220), b, 2, border_radius=4)
+        pygame.draw.polygon(screen, (240, 240, 240), [(b.x + 8, b.y + 20), (b.centerx, b.y + 8), (b.right - 8, b.y + 20)])
+        pygame.draw.rect(screen, (240, 240, 240), (b.x + 12, b.y + 20, b.w - 24, 12))
+        pygame.draw.rect(screen, (60, 60, 80), (b.centerx - 3, b.y + 24, 6, 8))
+        if b.collidepoint(pygame.mouse.get_pos()):
+            tooltip(screen, [("房屋检测（J）", (255, 255, 255)), ("开启后点击房间内部查看是否适合 NPC 居住",
+                                                          (200, 220, 200))], pygame.mouse.get_pos())
+        if self.house_mode:
+            draw_text(screen, "房屋检测：点击房间内部任意位置（Esc 退出）", (SCREEN_WIDTH // 2, 190), 16,
+                      (150, 255, 170), center=True)
 
     def _draw_overlay(self, title, color, buttons, title_color=(255, 255, 255)):
         dim = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)

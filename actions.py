@@ -14,6 +14,7 @@ from bosses import open_bag
 TS = TILE_SIZE
 _TREE, _CACTUS = T["tree"], T["cactus"]
 _TORCH, _MUSHROOM = T["torch"], T["mushroom"]
+_NOTE = T["lore_note"]
 _WATER, _LAVA = T["water"], T["lava"]
 POT_LOOT = [("torch", 3, 8, 4), ("healing_potion", 1, 1, 2), ("wood_arrow", 8, 20, 3), ("gel", 1, 4, 2),
             ("mushroom", 1, 2, 2), ("coin", 2, 12, 5)]
@@ -74,6 +75,14 @@ def try_use(game):
         p.inventory.consume_slot(idx)
         open_bag(game, it.bag)
         _start(p, it, it.use_time)
+    elif kind == "cardpack":
+        p.inventory.consume_slot(idx)
+        game.open_card_pack()
+        _start(p, it, it.use_time)
+    elif kind == "map":
+        if game.start_treasure_hunt():
+            p.inventory.consume_slot(idx)
+            _start(p, it, it.use_time)
     elif kind == "summon":
         if use_summon(game, it):
             p.inventory.consume_slot(idx)
@@ -141,7 +150,7 @@ def update_use(game):
                 continue
             if box.colliderect(c.rect()):
                 p.swing_hits.add(id(c))
-                game.on_creature_hit(c, c.hit(it.damage, p.center()[0], it.knockback))
+                game.on_creature_hit(c, c.hit(it.damage, p.center()[0], it.knockback, attacker=p))
     if p.use_timer == 0:
         p.use_item = None
 
@@ -172,8 +181,11 @@ def hit_tile(game, it, tx, ty):
             game.notify("需要用斧头砍伐")
         return
     anchor = world.object_at(tx, ty) if IS_OBJECT[tid] else None
+    if anchor in world.locked:
+        game.notify("上锁的金箱无法破坏，右键用撬锁器打开")
+        return
     key = anchor or (tx, ty)
-    dmg = world.damage_tile(*key, power)
+    dmg = world.damage_tile(*key, int(power * (1 + game.player.stats["mining"])))
     game.burst((tx + 0.5) * TS, (ty + 0.5) * TS, td.color, 3, speed=1.8)
     if dmg >= td.hp:
         if anchor:
@@ -367,11 +379,22 @@ def interact(game, tx, ty):
     """Right-click on the world. Returns True if something reacted."""
     world = game.world
     p = game.player
+    if not in_reach(p, tx, ty):
+        return False
+    if world.get_tile(tx, ty) == _NOTE:
+        game.read_note(tx, ty)
+        return True
     anchor = world.object_at(tx, ty)
-    if not anchor or not in_reach(p, tx, ty):
+    if not anchor:
         return False
     td = TILES[world.objects[anchor]]
     if td.kind == "container":
+        if anchor in world.locked:
+            game.start_lockpick(anchor)
+        else:
+            game.open_chest(anchor, td.display)
+        return True
+    if td.kind == "furnace":
         game.inv_ui.open_container(anchor, world.containers[anchor], td.display)
         return True
     if td.kind == "bed":

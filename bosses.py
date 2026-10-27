@@ -46,7 +46,10 @@ class Boss:
     def center(self):
         return self.x + self.w / 2, self.y + self.h / 2
 
-    def hit(self, damage, from_x, knockback):
+    hostile = True
+    faction = "hostile"
+
+    def hit(self, damage, from_x, knockback, attacker=None):
         dealt = max(1, damage - self.t["defense"] // 2)
         self.hp -= dealt
         self.flash = 6
@@ -153,8 +156,8 @@ class KingSlime(Boss):
         self.teleport = 0
         self.stuck = 0
 
-    def hit(self, damage, from_x, knockback):
-        dealt = super().hit(damage, from_x, knockback)
+    def hit(self, damage, from_x, knockback, attacker=None):
+        dealt = super().hit(damage, from_x, knockback, attacker)
         while self.alive and self.hp < self.max_hp * self.next_split:
             self.next_split -= 0.08
             cx, cy = self.center()
@@ -316,6 +319,10 @@ class BossManager:
 def open_bag(game, bag):
     for name, lo, hi, chance in BAG_LOOT[bag]:
         if random.random() < chance:
+            if name.startswith("card:"):
+                game.player.cards.append(name[5:])
+                game.add_text(f"获得牌「{name[5:]}」", (200, 170, 255))
+                continue
             count = random.randint(lo, hi)
             left = game.player.inventory.add(name, count)
             if left:
