@@ -58,9 +58,11 @@ game.py ─┬─ menus.py / save.py
 
 | 项 | 状态 |
 |----|------|
-| `python tools/smoke_test.py` | **68/68 通过**（MSYS2 Python 3.14.8 + pygame 2.6.1，无窗口模式） |
-| 性能（无窗口） | 地表约 10.9 ms/帧，洞穴约 14.4 ms/帧（预算 16.7 ms） |
-| `python game.py` 桌面窗口 | **未验证**：需要用户手动试玩 |
+| 解释器 | **已验证**：`D:\lab_files\game\py_terraria\.venv\Scripts\python.exe`（Python 3.15.0）。依赖是 pygame-ce 2.5.8（`import pygame`，`IS_CE == 1`，SDL 2.32.10） |
+| `.\.venv\Scripts\python.exe tools\smoke_test.py` | **133/133 通过**（dummy 视频和音频驱动，2026-10-27） |
+| 性能（无窗口） | 地表约 11.1 ms/帧，洞穴约 13.4 ms/帧（预算 16.7 ms） |
+| 最小 SDL 窗口 | **已验证**：创建 320×180、32 位窗口后立即关闭 |
+| `.\.venv\Scripts\python.exe game.py` 桌面试玩 | **未验证**：需要用户手动试玩 |
 
 ### 手动试玩检查清单
 

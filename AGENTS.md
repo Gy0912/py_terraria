@@ -14,8 +14,8 @@
 
 ## 技术栈（已确认）
 
-- Python 3.10+（本机已验证：MSYS2 UCRT64 Python 3.14.8；该环境禁止 pip，pygame 需用 pacman 安装）
-- Pygame（唯一第三方依赖，见 `requirements.txt`；本机已验证 2.6.1）
+- Python 3.15.0（python.org，`C:\Python315\python.exe`）。项目依赖装在根目录 `.venv`，不要装进系统 Python。
+- pygame-ce 2.5.8（唯一第三方依赖，见 `requirements.txt`；导入名仍是 `pygame`，`pygame.IS_CE == 1`）。原版 PyPI 包 `pygame` 2.6.1 没有 Python 3.15 的 Windows wheel，不要在这个虚拟环境里安装它。
 
 ## 工作方式
 

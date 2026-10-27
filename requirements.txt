@@ -1,1 +1,3 @@
-pygame>=2.5
+# pygame-ce 提供 import pygame，并带有 Python 3.15 的 Windows wheel。
+# 不要在同一个环境里再安装 PyPI 上名为 pygame 的包。
+pygame-ce==2.5.8

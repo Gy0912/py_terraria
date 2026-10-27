@@ -45,12 +45,12 @@ py_terraria/
 ├─ healthbar.py         # 生命条
 ├─ manabar.py           # 魔力条
 ├─ ui.py                # 中文字体、文字、按钮、面板、提示框
-├─ requirements.txt     # Python 依赖（pygame）
+├─ requirements.txt     # Python 依赖（pygame-ce；导入名仍是 pygame）
 ├─ images/
 │  ├─ screen_pics/      # 开始界面背景
 │  └─ background_pics/  # 群系 / 层级背景（12 张 JPG）
 ├─ tools/
-│  └─ smoke_test.py     # 无窗口冒烟测试：68 项检查 + 截图（存档写入临时目录）
+│  └─ smoke_test.py     # 无窗口冒烟测试：133 项检查 + 截图（存档写入临时目录）
 ├─ docs/
 │  ├─ PROJECT_STATUS.md # 实现状态、验证结果、风险
 │  ├─ ROADMAP.md        # 里程碑
@@ -60,7 +60,7 @@ py_terraria/
 └─ .gitignore           # 忽略缓存、虚拟环境、测试截图、saves/
 ```
 
-运行时会在项目根目录生成 `saves/`（存档，不纳入版本控制）。只读参考项目（勿修改）：`D:\lab_files\game\PyRarria-master`。
+运行时会在项目根目录生成 `saves/`（存档）和 `.venv/`（虚拟环境）。二者都不纳入版本控制。只读参考项目（勿修改）：`D:\lab_files\game\PyRarria-master`。
 
 ## 运行方式
 
@@ -68,26 +68,27 @@ py_terraria/
 
 ### 1. 准备环境
 
-本机已验证的环境：MSYS2 UCRT64 Python 3.14.8 + pygame 2.6.1（这个 Python 不允许用 pip 安装，所以通过 pacman 安装 pygame）：
-
-```powershell
-C:\msys64\usr\bin\pacman.exe -S --noconfirm mingw-w64-ucrt-x86_64-python-pygame
-```
-
-如果使用 python.org 官方 Python（3.10–3.13，未在本机验证）：
+当前已验证的环境是 python.org 的 Python 3.15.0 加项目虚拟环境里的 pygame-ce 2.5.8。系统 Python 的 `site-packages` 不可写，原版 pygame 2.6.1 也没有 Python 3.15 的 Windows wheel，所以依赖只装在 `.venv` 里。`.venv/` 已被 `.gitignore` 忽略。
 
 ```powershell
 Set-Location "D:\lab_files\game\py_terraria"
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+& "C:\Python315\python.exe" -m venv ".\.venv"
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+安装日志应出现 `pygame_ce-2.5.8-cp315-cp315-win_amd64.whl`。确认实际加载的是 pygame-ce：
+
+```powershell
+.\.venv\Scripts\python.exe -c "import pygame; print(pygame.version.ver, pygame.IS_CE, pygame.__file__)"
+```
+
+预期：`2.5.8 1`，并且路径位于 `.venv\Lib\site-packages\pygame\`。
 
 ### 2. 启动游戏
 
 ```powershell
 Set-Location "D:\lab_files\game\py_terraria"
-python game.py
+.\.venv\Scripts\python.exe game.py
 ```
 
 点击"开始游戏"后进入世界选择界面：在空存档位点击"新建世界"（可以输入名称和种子），或在已有存档上点击"进入游戏"。
@@ -96,10 +97,10 @@ python game.py
 
 ```powershell
 Set-Location "D:\lab_files\game\py_terraria"
-python tools/smoke_test.py
+.\.venv\Scripts\python.exe tools\smoke_test.py
 ```
 
-最后一行应为 `68/68 checks passed`。截图输出到 `tools/screenshots/`。
+最后一行应为 `133/133 checks passed`。截图输出到 `tools/screenshots/`。
 
 ## 操作
 
