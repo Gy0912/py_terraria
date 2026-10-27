@@ -28,7 +28,7 @@ NPC_TYPES = {
         "上锁的金箱需要撬锁器。手要稳，时机要准。",
     ]),
     "merchant": dict(name="商人", hp=200, attack=("knife", 6, 55, 300),
-                     shop=[("torch", 5), ("healing_potion", 30), ("wood_arrow", 1), ("mushroom", 8),
+                     shop=[("torch", 5), ("seeds", 2), ("healing_potion", 30), ("wood_arrow", 1), ("mushroom", 8),
                            ("bucket", 40), ("mining_helmet", 80), ("magnet_ring", 200), ("bed", 30),
                            ("chest", 25), ("card_pack", 50), ("lockpick", 15)],
                      lines=["有钱就是大爷！看看我的货吧。", "出货箱是个好东西，第二天早上就能拿到钱。",

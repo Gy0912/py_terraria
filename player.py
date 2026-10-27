@@ -4,7 +4,7 @@ import pygame
 
 from settings import *
 from tiles import T, STICKY
-from items import ITEMS, STARTING_ITEMS
+from items import ITEMS, STARTING_ITEMS, ARMOR_SETS
 from inventory import Inventory
 from physics import move_x, move_y, rect_solid, rect_liquid, point_in_liquid, rect_touches
 
@@ -55,7 +55,13 @@ class Player:
                 if key in ("breath", "magnet"):
                     st[key] = max(st[key], val)
                 else:
-                    st[key] += val
+                    st[key] = st.get(key, 0) + val
+        self.set_name = None
+        for label, pieces, bonus in ARMOR_SETS.values():
+            if all(self.equip[s] == n for s, n in zip(("head", "body", "legs"), pieces)):
+                self.set_name = label
+                for key, val in bonus.items():
+                    st[key] = st.get(key, 0) + val
         self.stats = st
         self.defense = st["defense"]
         self.max_mana = min(200, self.base_max_mana + st["mana"])
@@ -287,21 +293,33 @@ class Player:
             self.breath = min(self.breath_max, self.breath + 6)
         lava_ok = st["lava_immune"]
         if self.in_lava and not lava_ok:
-            self.burning = BURN_FRAMES
+            self.burning = BURN_FRAMES // (2 if st.get("lava_resist") else 1)
             if self.invuln == 0:
-                self.pending_damage += LAVA_HIT
+                self.pending_damage += LAVA_HIT // (2 if st.get("lava_resist") else 1)
                 self.pending_invuln = 40
         if lava_ok:
             self.burning = 0
         elif self.burning > 0:
             self.burning -= 1
+        tx = int(self.center()[0]) // TS
+        ty = int(self.center()[1]) // TS
+        self.climate = None
+        if self.world.layer_at(tx, ty) == "surface" and not (self.in_water or self.in_lava):
+            biome = self.world.biome_at(tx, ty)
+            hour = getattr(self, "hour", 12)
+            if biome == "snow" and not st.get("warm"):
+                self.climate = "cold"
+            elif biome == "desert" and 9 <= hour < 17 and not st.get("cool"):
+                self.climate = "hot"
         self.dot_tick += 1
         if self.dot_tick >= 30:
             self.dot_tick = 0
             if self.breath == 0:
                 self.pending_damage += 6
             if self.burning > 0:
-                self.pending_damage += 4
+                self.pending_damage += 2 if st.get("lava_resist") else 4
+            if self.climate:
+                self.pending_damage += 2
 
     def take_pending_damage(self):
         dmg = self.pending_damage

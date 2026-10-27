@@ -1,6 +1,6 @@
 # game settings
 TITLE = "PyTerraria"
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 SCREEN_WIDTH = 1080
 SCREEN_HEIGHT = 655
 FPS = 60

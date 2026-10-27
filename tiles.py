@@ -84,6 +84,13 @@ _DEFS = [
             light=(6, 0.8), support="below", size=(2, 3), kind="pylon"),
     TileDef("shipping_bin", "出货箱", solid=False, hp=40, tool="any", drop="shipping_bin",
             color=(150, 110, 70), support="below", size=(2, 2), kind="container"),
+    TileDef("crop_0", "麦苗", solid=False, hp=1, tool="any", color=(120, 180, 60)),
+    TileDef("crop_1", "麦苗", solid=False, hp=1, tool="any", color=(150, 190, 50)),
+    TileDef("crop_2", "成熟的麦子", solid=False, hp=1, tool="any", drop="wheat", color=(210, 180, 50)),
+    TileDef("sprinkler", "洒水器", solid=False, hp=40, tool="any", drop="sprinkler", color=(80, 150, 210),
+            support="below"),
+    TileDef("collector", "收集器", solid=False, hp=40, tool="any", drop="collector", color=(120, 130, 150),
+            support="below", size=(2, 2), kind="container"),
 ]
 
 TILES = []

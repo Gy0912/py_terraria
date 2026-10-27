@@ -89,6 +89,10 @@ _ITEMS = [
     _block("pylon", "传送晶塔", (90, 220, 230), max_stack=99, value=40, desc="右键在晶塔之间传送"),
     _block("shipping_bin", "出货箱", (150, 110, 70), max_stack=99,
            desc="放入的物品会在第二天早上 6:00 自动售出"),
+    _block("sprinkler", "洒水器", (80, 150, 210), max_stack=99, value=80,
+           desc="让周围 6 格内的作物生长速度加倍"),
+    _block("collector", "收集器", (120, 130, 150), max_stack=99, value=100,
+           desc="把附近掉落物吸进自己的箱子"),
     # walls
     _wall("dirt_wall", "泥土墙", (100, 70, 48)),
     _wall("stone_wall", "石墙", (90, 90, 95)),
@@ -120,6 +124,11 @@ _ITEMS = [
             value=30, desc="使用后获得 3 张随机牌（用于和 NPC 打牌）"),
     ItemDef("raw_meat", "生肉", "consumable", "meat", (200, 90, 90), max_stack=99, heal=5, use_time=30,
             value=2, desc="放进熔炉可以烤熟"),
+    ItemDef("seeds", "麦种", "seed", "gel", (90, 170, 50), max_stack=99, use_time=8, value=1,
+            desc="种在泥土或泥浆上，成熟后收获小麦"),
+    ItemDef("wheat", "小麦", "material", "bar", (210, 180, 60), value=2),
+    ItemDef("bread", "面包", "consumable", "meat", (190, 140, 70), max_stack=99, heal=25, use_time=30,
+            value=8, desc="恢复 25 生命"),
     ItemDef("cooked_meat", "烤肉", "consumable", "meat", (170, 100, 50), max_stack=99, heal=30, use_time=30,
             value=8, desc="恢复 30 生命"),
     # consumables
@@ -210,6 +219,8 @@ _ITEMS = [
     _acc("star_band", "星辰手环", "band", (110, 140, 255), {"mana": 20}, "魔力上限 +20", 100),
     _acc("eye_shield", "巨眼盾牌", "shield", (200, 60, 70), {"defense": 4, "kb_immune": 1},
          "防御 +4，免疫击退", 150),
+    _acc("fur_coat", "保暖斗篷", "charm", (150, 100, 60), {"warm": 1}, "在雪原地表不会受冻", 40),
+    _acc("cooling_band", "清凉手环", "band", (80, 190, 230), {"cool": 1}, "在沙漠白天不会中暑", 40),
     _acc("slime_boots", "弹力胶鞋", "boots", (80, 140, 240), {"fall_immune": 1, "jump": 0.15},
          "免疫跌落伤害，跳跃 +15%", 150),
     _acc("expedition_badge", "远征队徽章", "badge", (200, 170, 90), {"mining": 0.25},
@@ -235,6 +246,11 @@ RECIPES = [
     Recipe("wooden_bow", 1, {"wood": 10}, "workbench"),
     Recipe("wooden_hammer", 1, {"wood": 8}, "workbench"),
     Recipe("wood_arrow", 10, {"wood": 1, "stone": 1}, "workbench"),
+    Recipe("bread", 1, {"wheat": 3}, "workbench"),
+    Recipe("fur_coat", 1, {"snow": 20, "gel": 5}, "workbench"),
+    Recipe("cooling_band", 1, {"ice": 8}, "workbench"),
+    Recipe("sprinkler", 1, {"iron_bar": 5, "bucket": 1}, "anvil"),
+    Recipe("collector", 1, {"iron_bar": 8, "gel": 10}, "anvil"),
     Recipe("healing_potion", 1, {"mushroom": 2, "gel": 2}, "workbench"),
     Recipe("bone_sword", 1, {"bone": 25}, "workbench"),
     Recipe("door", 1, {"wood": 6}, "workbench"),
@@ -277,6 +293,14 @@ for _base in ("dirt", "stone", "sand", "snow", "mud", "wood", "stone_brick", "sa
     RECIPES.append(Recipe(_base + "_wall", 4, {_base: 1}, "workbench"))
 
 STATION_NAMES = {"workbench": "工作台", "anvil": "铁砧"}
+
+ARMOR_SETS = {
+    "copper": ("铜甲套装", ("copper_helmet", "copper_chainmail", "copper_greaves"), {"defense": 2}),
+    "iron": ("铁甲套装", ("iron_helmet", "iron_chainmail", "iron_greaves"), {"defense": 3, "mining": 0.2}),
+    "gold": ("金甲套装", ("gold_helmet", "gold_chainmail", "gold_greaves"), {"defense": 3, "mana": 20}),
+    "molten": ("熔岩套装", ("molten_helmet", "molten_breastplate", "molten_greaves"),
+               {"defense": 4, "lava_resist": 1}),
+}
 
 STARTING_ITEMS = [("copper_pickaxe", 1), ("copper_axe", 1), ("copper_sword", 1), ("torch", 15),
                   ("wooden_hammer", 1)]

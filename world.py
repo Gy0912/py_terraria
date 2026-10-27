@@ -11,7 +11,7 @@ from tiles import (TILES, AIR, SOLID, LIQUID, EMITS_LIGHT, BLOCKS_CREATURES, BLO
 from worldgen import WorldGen
 
 _OBSIDIAN = T["obsidian"]
-CONTAINER_SIZE = {"chest": 20, "gold_chest": 20, "shipping_bin": 20, "furnace": 3}
+CONTAINER_SIZE = {"chest": 20, "gold_chest": 20, "shipping_bin": 20, "furnace": 3, "collector": 20}
 
 
 class World:

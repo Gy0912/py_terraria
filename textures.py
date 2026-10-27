@@ -444,6 +444,7 @@ _OBJ_GEN = {
     "workbench": _o_workbench, "furnace": _o_furnace, "anvil": _o_anvil, "chest": _o_chest,
     "gold_chest": lambda: _o_chest((205, 160, 55), (255, 235, 140)),
     "bed": _o_bed, "door": _o_door, "pylon": _o_pylon, "shipping_bin": _o_shipping_bin,
+    "collector": lambda: _o_chest((110, 120, 140), (170, 210, 240)),
 }
 
 
@@ -1306,6 +1307,9 @@ class Assets:
                                                          max(1, int(tex.get_height() * scale))))
                     icon = pygame.Surface((32, 32), pygame.SRCALPHA)
                     icon.blit(small, ((32 - small.get_width()) // 2, (32 - small.get_height()) // 2))
+                elif tid not in self.tile_tex:
+                    icon = pygame.Surface((32, 32), pygame.SRCALPHA)
+                    pygame.draw.rect(icon, TILES[tid].color, (5, 5, 22, 22))
                 elif TILES[tid].solid:
                     icon = pygame.Surface((32, 32), pygame.SRCALPHA)
                     icon.blit(pygame.transform.scale(self.tile_tex[tid][0], (22, 22)), (5, 5))

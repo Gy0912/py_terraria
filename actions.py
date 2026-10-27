@@ -13,6 +13,8 @@ from bosses import open_bag
 
 TS = TILE_SIZE
 _TREE, _CACTUS = T["tree"], T["cactus"]
+_CROP = {T["crop_0"], T["crop_1"], T["crop_2"]}
+_SOIL = {T["dirt"], T["mud"], T["grass"], T["jungle_grass"]}
 _TORCH, _MUSHROOM = T["torch"], T["mushroom"]
 _NOTE = T["lore_note"]
 _WATER, _LAVA = T["water"], T["lava"]
@@ -59,7 +61,11 @@ def try_use(game):
     tx, ty = int(wx) // TS, int(wy) // TS
     kind = it.kind
 
-    if kind == "block":
+    if kind == "seed":
+        if plant(game, tx, ty):
+            p.inventory.consume_slot(idx)
+            _start(p, it, it.use_time)
+    elif kind == "block":
         if place_tile(game, it, tx, ty):
             p.inventory.consume_slot(idx)
             _start(p, it, it.use_time)
@@ -210,6 +216,13 @@ def break_tile(game, tx, ty):
         n = world.remove_tree(tx, ty)
         game.drop_item_at(td.drop, n, px, py)
         game.burst(px, py - TS * 4, (60, 150, 50), 16, speed=3.0)
+    elif tid in _CROP:
+        world.set_tile(tx, ty, AIR)
+        if tid == T["crop_2"]:
+            game.drop_item_at("wheat", 2, px, py)
+            game.drop_item_at("seeds", 1, px, py)
+        else:
+            game.drop_item_at("seeds", 1, px, py)
     else:
         world.set_tile(tx, ty, AIR)
         if td.drop:
@@ -289,6 +302,17 @@ def hit_wall(game, it, tx, ty):
 # ----------------------------------------------------------------------
 # placing
 # ----------------------------------------------------------------------
+
+def plant(game, tx, ty):
+    world = game.world
+    if not in_reach(game.player, tx, ty) or world.get_tile(tx, ty) != AIR:
+        return False
+    if world.get_tile(tx, ty + 1) not in _SOIL:
+        game.notify("麦种需要种在泥土或泥浆上")
+        return False
+    world.set_tile(tx, ty, T["crop_0"])
+    return True
+
 
 def place_tile(game, it, tx, ty):
     world = game.world

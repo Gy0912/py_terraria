@@ -404,6 +404,7 @@ class Game:
                 and not self.inv_ui.over_ui(mouse) and not self.inv_ui.cursor):
             actions.try_use(self)
 
+        p.hour = self.hour()
         p.update(keys)
         dmg = p.take_pending_damage()
         if dmg:
@@ -470,6 +471,10 @@ class Game:
         self.world.tick_damage()
         if self.ticks % 15 == 0:
             self.inv_ui.stations = self.nearby_stations()
+        if self.ticks % (8 * FPS) == 0:
+            self.grow_crops()
+        if self.ticks % 45 == 0:
+            self.collect_drops()
         self._update_furnaces()
         if self.room_report:
             self.room_report.life -= 1
@@ -566,6 +571,40 @@ class Game:
                     ax, ay = anchor
                     self.burst((ax + 1.5) * TILE_SIZE, ay * TILE_SIZE, (255, 170, 60), 4, speed=1.5)
 
+    def grow_crops(self):
+        """Advance every planted crop by one stage; a sprinkler within 6 tiles adds another."""
+        nxt = {T["crop_0"]: T["crop_1"], T["crop_1"]: T["crop_2"]}
+        cs = CHUNK_SIZE
+        grown = []
+        for (cx, cy), data in self.world.chunks.items():
+            for i, tid in enumerate(data):
+                if tid in nxt:
+                    grown.append((cx * cs + i % cs, cy * cs + i // cs, nxt[tid]))
+        for tx, ty, tid in grown:
+            if any(self.world.peek_tile(tx + dx, ty + dy) == T["sprinkler"]
+                   for dx in range(-6, 7) for dy in range(-6, 7)):
+                tid = nxt.get(tid, tid)
+            self.world.set_tile(tx, ty, tid)
+
+    def collect_drops(self):
+        """Collectors pull nearby drops into their own storage."""
+        for (ax, ay), tid in self.world.objects.items():
+            if TILES[tid].name != "collector":
+                continue
+            slots = self.world.containers.get((ax, ay))
+            if not slots:
+                continue
+            cx, cy = (ax + 1) * TILE_SIZE, (ay + 1) * TILE_SIZE
+            for drop in self.drops:
+                if not drop.alive:
+                    continue
+                dx, dy = drop.center()
+                if abs(dx - cx) <= 6 * TILE_SIZE and abs(dy - cy) <= 6 * TILE_SIZE:
+                    left = add_to_slots(slots, drop.name, drop.count)
+                    drop.count = left
+                    if left == 0:
+                        drop.alive = False
+
     def nearby_stations(self):
         cx, cy = self.player.center()
         tx, ty = int(cx) // TILE_SIZE, int(cy) // TILE_SIZE
@@ -637,7 +676,7 @@ class Game:
                 p.hp = p.max_hp
                 p.burning = 0
                 panel.text = "好了，下次小心点。"
-            panel._make_buttons()
+            panel.make_buttons()
         elif action == "teleport":
             self.panel = TeleportPanel(self)
             return False
@@ -938,7 +977,7 @@ class Game:
     def _draw_cursor(self):
         p = self.player
         item = self.inv_ui.selected_item()
-        if not p.alive or not item or ITEMS[item].kind not in ("tool", "block", "wall", "bucket") or \
+        if not p.alive or not item or ITEMS[item].kind not in ("tool", "block", "wall", "bucket", "seed") or \
                 self.inv_ui.over_ui(pygame.mouse.get_pos()) or self.panel:
             return
         tx, ty = actions.mouse_tile(self)
@@ -961,6 +1000,12 @@ class Game:
             status.append("燃烧中")
         if p.breath == 0:
             status.append("窒息！")
+        if getattr(p, "climate", None) == "cold":
+            status.append("寒冷")
+        elif getattr(p, "climate", None) == "hot":
+            status.append("炎热")
+        if p.set_name:
+            status.append(p.set_name)
         if self.creatures.slime_rain:
             status.append(f"史莱姆雨 {self.slime_kills}/40")
         draw_text(screen, "  ".join(status), (SCREEN_WIDTH - 210, 49), 14,
